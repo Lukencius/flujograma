@@ -1,16 +1,15 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
-                             QTableWidget, QTableWidgetItem, QComboBox)
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QIcon, QColor
+                             QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget)
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate
+from PyQt6.QtGui import QIcon, QColor, QPixmap
 import pymysql
 import sys
 import os
 import time
 import sqlite3
 import hashlib
-
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
     "charset": "utf8mb4",
@@ -21,7 +20,6 @@ DB_CONFIG = {
     "port": 15140,
     "user": "avnadmin",
 }
-
 def resource_path(relative_path):
     """Obtiene la ruta absoluta del recurso, funciona para desarrollo y PyInstaller"""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -38,14 +36,12 @@ class WorkerThread(QThread):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
-
     def run(self):
         try:
             result = self.function(self.signals.progress, *self.args, **self.kwargs)
             self.signals.finished.emit(True, "Operación completada con éxito")
         except Exception as e:
             self.signals.finished.emit(False, str(e))
-
 class DatabaseManager:
     @staticmethod
     def execute_query(query, params=None):
@@ -55,12 +51,10 @@ class DatabaseManager:
                 if query.strip().upper().startswith('SELECT'):
                     return cursor.fetchall()
                 connection.commit()
-
     @staticmethod
     def get_last_id():
         result = DatabaseManager.execute_query("SELECT MAX(id) as max_id FROM documento")
         return result[0]['max_id'] if result else 0
-
     @staticmethod
     def reordenar_ids(progress_callback):
         try:
@@ -185,17 +179,150 @@ class ProgressDialog(QDialog):
         self.progress_bar.setValue(value)
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, username="", user_role=""):
         super().__init__()
+        self.username = username
+        self.user_role = user_role
         self.init_ui()
+        self.setup_user_info()
         self.worker = None
         self.progress_dialog = None
 
-    def init_ui(self):
-        self.setWindowTitle("Interfaz de Mamabichosricos")
-        self.setGeometry(100, 100, 800, 600)
-        self.setWindowIcon(QIcon(resource_path("image.jpeg")))
+    def setup_user_info(self):
+        """Configura o actualiza la información del usuario"""
+        # Buscar el widget contenedor existente y eliminarlo si existe
+        existing_user_info = self.findChild(QWidget, "user_info_widget")
+        if existing_user_info:
+            existing_user_info.deleteLater()
 
+        # Crear nuevo widget contenedor para la información de usuario y botón de cierre
+        user_info_widget = QWidget()
+        user_info_widget.setObjectName("user_info_widget")
+        user_info_layout = QHBoxLayout(user_info_widget)
+        user_info_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Etiqueta de información de usuario
+        user_info_label = QLabel(f"Sesion: {self.username} | Rol: {self.user_role}")
+        user_info_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 12px;
+                padding: 5px;
+                background-color: #363636;
+                border-radius: 3px;
+            }
+        """)
+        # Botón de cerrar sesión
+        logout_button = QPushButton("Cerrar Sesión")
+        logout_button.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 12px;
+            }6
+            QPushButton:hover {
+                background-color: #b71c1c;
+            }
+        """)
+        logout_button.clicked.connect(self.logout)
+        
+        user_info_layout.addWidget(user_info_label)
+        user_info_layout.addWidget(logout_button)
+        user_info_layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        # Añadir al layout principal
+    def init_ui(self):
+        self.setWindowTitle("Interfaz de Corporación Isla de Maipo")
+        self.setGeometry(100, 100, 800, 600)
+        self.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
+        # Aplicar estilo oscuro
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QTreeWidget {
+                background-color: #363636;
+                color: #ffffff;
+                border: 1px solid #555555;
+            }
+            QTreeWidget::item {
+                color: #ffffff;
+                background-color: #363636;
+            }
+            QTreeWidget::item:selected {
+                background-color: #4a4a4a;
+            }
+            QTreeWidget QHeaderView::section {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                padding: 5px;
+                border: 1px solid #555555;
+            }
+            QTreeWidget::branch {
+                background-color: #363636;
+                color: #ffffff;
+            }
+            QTreeWidget::branch:selected {
+                background-color: #4a4a4a;
+            }
+            QTableWidget {
+                background-color: #363636;
+                color: #ffffff;
+                gridline-color: #555555;
+            }
+            QTableWidget QHeaderView::section {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                padding: 5px;
+                border: 1px solid #555555;
+            }
+            QTableWidget::item {
+                color: #ffffff;
+                background-color: #363636;
+            }
+            QTableWidget::item:selected {
+                background-color: #4a4a4a;
+            }
+            QLineEdit {
+                background-color: #363636;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 5px;
+            }
+            QToolButton {
+                background-color: #363636;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 5px;
+            }
+            QToolButton:hover {
+                background-color: #4a4a4a;
+            }
+            QComboBox {
+                background-color: #363636;
+                color: #ffffff;
+                border: 1px solid #555555;
+                padding: 5px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                background-color: #555555;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #363636;
+                color: #ffffff;
+                selection-background-color: #4a4a4a;
+            }
+        """)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
@@ -203,6 +330,32 @@ class MainWindow(QMainWindow):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         main_layout.addWidget(left_widget)
+
+        # Agregar logo y título
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
+        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        logo_label.setPixmap(scaled_pixmap)
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_layout.addWidget(logo_label)
+
+        # Agregar título corporativo
+        title_label = QLabel("Corporación de Isla de Maipo")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+                margin: 10px 0;
+            }
+        """)
+        left_layout.addWidget(title_label)
+        # Agregar separador visual
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #555555;")
+        left_layout.addWidget(separator)
 
         # Creamos los botones "Agregar Datos", "Consultar Datos", "Eliminar Datos", "Modificar Datos" y "Reordenar IDs"
         buttons_config = [
@@ -212,10 +365,44 @@ class MainWindow(QMainWindow):
             ("Modificar Datos", self.modificar_datos, "edit_icon.png"),
             ("Administrar", self.show_admin_panel, "admin_icon.png"),
         ]
-        
         for button_text, slot, icon_name in buttons_config:
             self.create_tool_button(button_text, slot, icon_name, left_layout)
-
+        # Agregar separador visual después de los botones
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #555555;")
+        left_layout.addWidget(separator)
+        # Agregar widget de información de usuario
+        user_info_label = QLabel(f"Sesion: {self.username} | Rol: {self.user_role}")
+        user_info_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 12px;
+                padding: 5px;
+                background-color: #363636;
+                border-radius: 3px;
+                margin-top: 10px;
+            }
+        """)
+        logout_button = QPushButton("Cerrar Sesión")
+        logout_button.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 12px;
+                margin-top: 5px;
+            }
+            QPushButton:hover {
+                background-color: #b71c1c;
+            }
+        """)
+        logout_button.clicked.connect(self.logout)
+        
+        left_layout.addWidget(user_info_label)
+        left_layout.addWidget(logout_button)
         left_layout.addStretch()
 
         right_widget = QWidget()
@@ -291,17 +478,85 @@ class MainWindow(QMainWindow):
         msg_box.setIcon(icono)
         msg_box.setText(mensaje)
         msg_box.setWindowTitle(titulo)
-        msg_box.setWindowIcon(QIcon(resource_path("image.jpeg")))
+        msg_box.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
         msg_box.exec()
 
     def agregar_datos(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("Agregar Documento")
         layout = QFormLayout(dialog)
+        # Crear el calendario para la fecha
+        fecha_input = QCalendarWidget()
+        fecha_input.setGridVisible(True)
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        
+        # Establecer la fecha actual como predeterminada
+        fecha_input.setSelectedDate(QDate.currentDate())
+        
+        # Hacer el calendario más compacto
+        fecha_input.setFixedSize(300, 200)
+        
+        # Estilo oscuro para el calendario
+        fecha_input.setStyleSheet("""
+            QCalendarWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QCalendarWidget QTableView {
+                background-color: #363636;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+                alternate-background-color: #404040;
+            }
+            QCalendarWidget QTableView:enabled {
+                color: #ffffff;
+            }
+            QCalendarWidget QTableView:disabled {
+                color: #808080;
+            }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                background-color: #2b2b2b;
+            }
+            QCalendarWidget QToolButton {
+                color: #ffffff;
+                background-color: #363636;
+                border: 1px solid #555555;
+                border-radius: 3px;
+                padding: 3px;
+                margin: 3px;
+            }
+            QCalendarWidget QToolButton:hover {
+                background-color: #4a4a4a;
+            }
+            QCalendarWidget QSpinBox {
+                color: #ffffff;
+                background-color: #363636;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+            }
+            QCalendarWidget QMenu {
+                color: #ffffff;
+                background-color: #363636;
+            }
+            QCalendarWidget QMenu::item:selected {
+                background-color: #4a4a4a;
+            }
+            /* Estilo para los días de la semana */
+            QCalendarWidget QWidget { 
+                alternate-background-color: #404040;
+            }
+            QCalendarWidget QAbstractItemView:enabled {
+                color: #ffffff;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+            }
+            QCalendarWidget QAbstractItemView:disabled {
+                color: #808080;
+            }
+        """)
 
-        # Crear inputs para cada campo
+        # Crear inputs para los demás campos
         inputs = {
-            'fecha': QLineEdit(),
             'establecimiento': QLineEdit(),
             'tipodocumento': QLineEdit(),
             'nrodocumento': QLineEdit(),
@@ -311,7 +566,10 @@ class MainWindow(QMainWindow):
             'estado': QLineEdit()
         }
 
-        # Agregar campos al formulario
+        # Agregar el calendario primero
+        layout.addRow("Fecha:", fecha_input)
+
+        # Agregar los demás campos al formulario
         for label, input_field in inputs.items():
             layout.addRow(label.capitalize() + ":", input_field)
 
@@ -323,12 +581,15 @@ class MainWindow(QMainWindow):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
+                # Obtener la fecha seleccionada en formato yyyy-mm-dd
+                fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
+                
                 DatabaseManager.execute_query(
                     """INSERT INTO documento(
                         fecha, establecimiento, tipodocumento, 
                         nrodocumento, materia, destino, firma, estado
                     ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (inputs['fecha'].text(),
+                    (fecha_seleccionada,
                      inputs['establecimiento'].text(),
                      inputs['tipodocumento'].text(),
                      inputs['nrodocumento'].text(),
@@ -460,9 +721,79 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Modificar Documento")
         layout = QFormLayout(dialog)
 
+        # Crear el calendario para la fecha
+        fecha_input = QCalendarWidget()
+        fecha_input.setGridVisible(True)
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        
+        # Establecer la fecha actual del registro
+        current_date = QDate.fromString(item.text(1), "yyyy-MM-dd")
+        fecha_input.setSelectedDate(current_date)
+        
+        # Hacer el calendario más compacto
+        fecha_input.setFixedSize(300, 200)
+        
+        # Estilo oscuro para el calendario
+        fecha_input.setStyleSheet("""
+            QCalendarWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QCalendarWidget QTableView {
+                background-color: #363636;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+                alternate-background-color: #404040;
+            }
+            QCalendarWidget QTableView:enabled {
+                color: #ffffff;
+            }
+            QCalendarWidget QTableView:disabled {
+                color: #808080;
+            }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                background-color: #2b2b2b;
+            }
+            QCalendarWidget QToolButton {
+                color: #ffffff;
+                background-color: #363636;
+                border: 1px solid #555555;
+                border-radius: 3px;
+                padding: 3px;
+                margin: 3px;
+            }
+            QCalendarWidget QToolButton:hover {
+                background-color: #4a4a4a;
+            }
+            QCalendarWidget QSpinBox {
+                color: #ffffff;
+                background-color: #363636;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+            }
+            QCalendarWidget QMenu {
+                color: #ffffff;
+                background-color: #363636;
+            }
+            QCalendarWidget QMenu::item:selected {
+                background-color: #4a4a4a;
+            }
+            /* Estilo para los días de la semana */
+            QCalendarWidget QWidget { 
+                alternate-background-color: #404040;
+            }
+            QCalendarWidget QAbstractItemView:enabled {
+                color: #ffffff;
+                selection-background-color: #4a4a4a;
+                selection-color: #ffffff;
+            }
+            QCalendarWidget QAbstractItemView:disabled {
+                color: #808080;
+            }
+        """)
+
         # Crear inputs con los valores actuales
         inputs = {
-            'fecha': QLineEdit(item.text(1)),
             'establecimiento': QLineEdit(item.text(2)),
             'tipodocumento': QLineEdit(item.text(3)),
             'nrodocumento': QLineEdit(item.text(4)),
@@ -472,6 +803,10 @@ class MainWindow(QMainWindow):
             'estado': QLineEdit(item.text(8))
         }
 
+        # Agregar el calendario primero
+        layout.addRow("Fecha:", fecha_input)
+
+        # Agregar los demás campos al formulario
         for label, input_field in inputs.items():
             layout.addRow(label.capitalize() + ":", input_field)
 
@@ -482,13 +817,16 @@ class MainWindow(QMainWindow):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
+                # Obtener la fecha seleccionada en formato yyyy-mm-dd
+                fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
+                
                 DatabaseManager.execute_query(
                     """UPDATE documento SET 
                         fecha = %s, establecimiento = %s, tipodocumento = %s,
                         nrodocumento = %s, materia = %s, destino = %s,
                         firma = %s, estado = %s 
                     WHERE id_documento = %s""",
-                    (inputs['fecha'].text(), inputs['establecimiento'].text(),
+                    (fecha_seleccionada, inputs['establecimiento'].text(),
                      inputs['tipodocumento'].text(), inputs['nrodocumento'].text(),
                      inputs['materia'].text(), inputs['destino'].text(),
                      inputs['firma'].text(), inputs['estado'].text(), id_to_modify)
@@ -553,6 +891,38 @@ class MainWindow(QMainWindow):
     def show_admin_panel(self):
         dialog = AdminPanel(self)
         dialog.exec()
+
+    def logout(self):
+        """Función para manejar el cierre de sesión"""
+        self.hide()
+        
+        login = LoginDialog()
+        if login.exec() == QDialog.DialogCode.Accepted:
+            self.username = login.username_input.text()
+            self.user_role = login.get_user_role()
+            
+            # Actualizar solo la información del usuario
+            self.setup_user_info()
+            
+            # Actualizar visibilidad de botones según el nuevo rol
+            for button in self.findChildren(QToolButton):
+                if self.user_role == "admin":
+                    # El administrador ve todos los botones
+                    button.setVisible(True)
+                elif self.user_role == "recepcionista":
+                    # El recepcionista solo ve agregar y consultar datos
+                    if button.objectName() in ["Eliminar Datos", "Modificar Datos", "Administrar"]:
+                        button.setVisible(False)
+                    else:
+                        button.setVisible(True)
+                else:  # usuario normal
+                    # Usuario normal solo ve consultar
+                    if button.objectName() not in ["Consultar Datos"]:
+                        button.setVisible(False)
+            
+            self.show()
+        else:
+            QApplication.instance().quit()
 
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
@@ -746,16 +1116,16 @@ class AdminPanel(QDialog):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al guardar cambios: {str(e)}")
-
 def main():
     app = QApplication(sys.argv)
-    app.setWindowIcon(QIcon(resource_path("image.jpeg")))
+    app.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
     
     # Mostramos el diálogo de login
     login = LoginDialog()
     if login.exec() == QDialog.DialogCode.Accepted:
         user_role = login.get_user_role()
-        window = MainWindow()
+        username = login.username_input.text()  # Obtener el nombre de usuario
+        window = MainWindow(username=username, user_role=user_role)  # Pasar los datos
         
         # Configurar visibilidad de botones según el rol del usuario
         for button in window.findChildren(QToolButton):
@@ -771,12 +1141,10 @@ def main():
             else:  # usuario normal
                 # Usuario normal solo ve consultar
                 if button.objectName() not in ["Consultar Datos"]:
-                    button.setVisible(False)
-        
+                    button.setVisible(False)  
         window.show()
         sys.exit(app.exec())
     else:
         sys.exit()
-
 if __name__ == "__main__":
     main()
