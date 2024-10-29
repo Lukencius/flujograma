@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate
-from PyQt6.QtGui import QIcon, QColor, QPixmap
+from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont
 import pymysql
 import sys
 import os
@@ -20,6 +20,20 @@ DB_CONFIG = {
     "port": 15140,
     "user": "avnadmin",
 }
+
+# Constantes de colores (agregar al inicio del archivo)
+COLORS = {
+    'primary': '#1E88E5',      # Azul principal
+    'primary_dark': '#1565C0', # Azul oscuro para hover
+    'primary_light': '#64B5F6', # Azul claro
+    'background': '#1a1f2c',   # Fondo oscuro azulado
+    'surface': '#2a3142',      # Superficie de componentes
+    'error': '#EF5350',        # Rojo para errores
+    'success': '#4CAF50',      # Verde para éxito
+    'text': '#ffffff',         # Texto blanco
+    'text_secondary': '#8F9BBA' # Texto secundario más claro y visible para los placeholders
+}
+
 def resource_path(relative_path):
     """Obtiene la ruta absoluta del recurso, funciona para desarrollo y PyInstaller"""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -66,7 +80,7 @@ class DatabaseManager:
                     (i, registro['id'])
                 )
                 # Simulamos un proceso más largo para ver la barra de progreso
-                time.sleep(0.1)
+                time.sleep(0.001)
                 # Emitimos el progreso
                 progress_callback.emit(int((i / total) * 100))
             return True
@@ -733,7 +747,7 @@ class MainWindow(QMainWindow):
         
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                DatabaseManager.execute_query("DELETE FROM documento WHERE id_documento = %s", (id_to_delete,))
+                DatabaseManager.execute_query("DELETE FROM documento WHERE id = %s", (id_to_delete,))
                 self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_delete} eliminado exitosamente")
                 self.consultar_datos()  # Actualizamos la vista después de eliminar
             except Exception as e:
@@ -1068,41 +1082,405 @@ class MainWindow(QMainWindow):
         self.search_combo.setCurrentIndex(0)
         self.consultar_datos()
 
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Inicio de Sesión - Corporación Isla de Maipo")
+        self.setFixedWidth(450)
+        self.setFixedHeight(500)
+        self.user_role = None
+        self.setup_ui()
+
+    def setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(40, 30, 40, 30)
+
+        # Logo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
+        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        logo_label.setPixmap(scaled_pixmap)
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(logo_label)
+
+        # Título
+        title_label = QLabel("Bienvenido")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 20px;
+            }
+        """)
+        main_layout.addWidget(title_label)
+
+        # Formulario
+        form_widget = QWidget()
+        form_layout = QFormLayout(form_widget)
+        form_layout.setSpacing(15)
+
+        # Usuario
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText("Ingrese su usuario")
+        self.username_input.setStyleSheet(create_input_style())
+        self.username_input.setMinimumHeight(42)
+        self.username_input.setFont(QFont("Segoe UI", 14))
+
+        # Contraseña
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText("Ingrese su contraseña")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.setStyleSheet(create_input_style())
+        self.password_input.setMinimumHeight(42)
+        self.password_input.setFont(QFont("Segoe UI", 14))
+
+        form_layout.addRow(self.create_label("Usuario:"), self.username_input)
+        form_layout.addRow(self.create_label("Contraseña:"), self.password_input)
+
+        main_layout.addWidget(form_widget)
+
+        # Botones
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setSpacing(10)
+
+        # Botón de inicio de sesión
+        login_btn = QPushButton("Iniciar Sesión")
+        login_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        login_btn.clicked.connect(self.login)
+        buttons_layout.addWidget(login_btn)
+
+        # Botón de registro
+        register_btn = QPushButton("Registrarse")
+        register_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {COLORS['primary']};
+                border: 2px solid {COLORS['primary']};
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(33, 150, 243, 0.1);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(33, 150, 243, 0.2);
+            }}
+        """)
+        register_btn.clicked.connect(self.show_register)
+        buttons_layout.addWidget(register_btn)
+
+        main_layout.addLayout(buttons_layout)
+
+        # Estilo general del diálogo
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+            }
+        """)
+
+    def create_label(self, text):
+        label = QLabel(text)
+        label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        return label
+
+    def login(self):
+        try:
+            username = self.username_input.text()
+            password = self.password_input.text()
+            
+            if not username or not password:
+                self.show_custom_error("Campos Incompletos", 
+                    "Por favor complete todos los campos para iniciar sesión.",
+                    "Los campos de usuario y contraseña son obligatorios.")
+                return
+                
+            success, role = DatabaseManager.validate_login(username, password)
+            if success:
+                self.user_role = role
+                self.accept()
+            else:
+                self.show_custom_error("Error de Autenticación", 
+                    "No se pudo iniciar sesión con las credenciales proporcionadas.",
+                    "Por favor verifique su usuario y contraseña.")
+        except Exception as e:
+            self.show_error_message(str(e))
+
+    def show_custom_error(self, title, message, detail):
+        error_dialog = QDialog(self)
+        error_dialog.setWindowTitle(title)
+        error_dialog.setFixedWidth(400)
+        
+        layout = QVBoxLayout(error_dialog)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        # Icono de error
+        icon_label = QLabel()
+        icon_label.setText("⚠️")
+        icon_label.setStyleSheet("""
+            QLabel {
+                color: #EF5350;
+                font-size: 48px;
+            }
+        """)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        # Mensaje principal
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        """)
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message_label)
+
+        # Detalle
+        detail_label = QLabel(detail)
+        detail_label.setWordWrap(True)
+        detail_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: 14px;
+            }}
+        """)
+        detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(detail_label)
+
+        # Botón de cerrar
+        close_btn = QPushButton("Entendido")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        close_btn.clicked.connect(error_dialog.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Estilo general del diálogo
+        error_dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+
+        error_dialog.exec()
+
+    def show_register(self):
+        dialog = RegisterDialog(self)
+        dialog.exec()
+
+    def get_user_role(self):
+        return self.user_role
+
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
         super().__init__(parent)
-        self.setWindowTitle("Registro de Usuario")
-        self.setFixedWidth(300)
+        self.setWindowTitle("Registro de Usuario - Corporación Isla de Maipo")
+        self.setFixedWidth(450)
+        self.setFixedHeight(550)
+        self.admin_mode = admin_mode
+        self.setup_ui()
+
+    def setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(40, 30, 40, 30)
+
+        # Logo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
+        scaled_pixmap = logo_pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        logo_label.setPixmap(scaled_pixmap)
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(logo_label)
+
+        # Título
+        title_label = QLabel("Registro de Usuario")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 20px;
+            }
+        """)
+        main_layout.addWidget(title_label)
+
+        # Formulario
+        form_widget = QWidget()
+        form_layout = QFormLayout(form_widget)
+        form_layout.setSpacing(15)
+
+        # Campos de entrada
+        self.username_input = self.create_input("Ingrese un nombre de usuario")
+        self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
+        self.confirm_password_input = self.create_input("Confirme su contraseña", is_password=True)
         
-        layout = QFormLayout(self)
-        
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.confirm_password_input = QLineEdit()
-        self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        
-        # Combo box para selección de rol (solo visible para administradores)
-        self.role_combo = QComboBox()
-        self.role_combo.addItems(["usuario", "recepcionista", "admin"])
-        
-        layout.addRow("Usuario:", self.username_input)
-        layout.addRow("Contraseña:", self.password_input)
-        layout.addRow("Confirmar Contraseña:", self.confirm_password_input)
-        
-        # Solo mostrar selección de rol si es modo admin
-        if admin_mode:
-            layout.addRow("Rol:", self.role_combo)
+        form_layout.addRow(self.create_label("Usuario:"), self.username_input)
+        form_layout.addRow(self.create_label("Contraseña:"), self.password_input)
+        form_layout.addRow(self.create_label("Confirmar:"), self.confirm_password_input)
+
+        # Combo box para rol (solo en modo admin)
+        if self.admin_mode:
+            self.role_combo = QComboBox()
+            self.role_combo.addItems(["usuario", "recepcionista", "admin"])
+            self.role_combo.setStyleSheet(f"""
+                QComboBox {{
+                    padding: 8px;
+                    border: 2px solid {COLORS['surface']};
+                    border-radius: 6px;
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    min-width: 150px;
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                    padding-right: 20px;
+                }}
+                QComboBox::down-arrow {{
+                    image: url(down_arrow.png);
+                    width: 12px;
+                    height: 12px;
+                }}
+                QComboBox QAbstractItemView {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    selection-background-color: {COLORS['primary']};
+                    selection-color: {COLORS['text']};
+                    border: 1px solid {COLORS['primary']};
+                }}
+            """)
+            form_layout.addRow(self.create_label("Rol:"), self.role_combo)
         else:
-            self.role_combo.setCurrentText("usuario")
-        
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.register)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+            self.role_combo = QComboBox()
+            self.role_combo.addItem("usuario")
+            self.role_combo.hide()
+
+        main_layout.addWidget(form_widget)
+
+        # Botones
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setSpacing(10)
+
+        # Botón de registro
+        register_btn = QPushButton("Registrar Usuario")
+        register_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        register_btn.clicked.connect(self.register)
+        buttons_layout.addWidget(register_btn)
+
+        # Botón de cancelar
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {COLORS['error']};
+                border: 2px solid {COLORS['error']};
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(244, 67, 54, 0.1);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(244, 67, 54, 0.2);
+            }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        buttons_layout.addWidget(cancel_btn)
+
+        main_layout.addLayout(buttons_layout)
+
+        # Estilo general del diálogo
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+            }
+        """)
+
+    def create_label(self, text):
+        label = QLabel(text)
+        label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        return label
+
+    def create_input(self, placeholder, is_password=False):
+        input_field = QLineEdit()
+        input_field.setPlaceholderText(placeholder)
+        if is_password:
+            input_field.setEchoMode(QLineEdit.EchoMode.Password)
+        input_field.setStyleSheet(create_input_style())
+        input_field.setMinimumHeight(42)
+        input_field.setFont(QFont("Segoe UI", 14))
+        return input_field
 
     def register(self):
         try:
@@ -1112,72 +1490,214 @@ class RegisterDialog(QDialog):
             role = self.role_combo.currentText()
             
             if not all([username, password, confirm_password]):
-                raise ValueError("Todos los campos son obligatorios")
+                self.show_custom_error(
+                    "Campos Incompletos",
+                    "Por favor complete todos los campos para registrarse.",
+                    "Todos los campos son obligatorios para crear una cuenta."
+                )
+                return
             
             if password != confirm_password:
-                raise ValueError("Las contraseñas no coinciden")
+                self.show_custom_error(
+                    "Contraseñas No Coinciden",
+                    "Las contraseñas ingresadas no coinciden.",
+                    "Por favor asegúrese de que ambas contraseñas sean idénticas."
+                )
+                return
             
             if len(password) < 8:
-                raise ValueError("La contraseña debe tener al menos 8 caracteres")
+                self.show_custom_error(
+                    "Contraseña Débil",
+                    "La contraseña debe tener al menos 8 caracteres.",
+                    "Use una combinación de letras, números y símbolos para mayor seguridad."
+                )
+                return
+            
+            if not any(c.isupper() for c in password):
+                self.show_custom_error(
+                    "Contraseña Inválida",
+                    "La contraseña debe contener al menos una mayúscula.",
+                    "Incluya al menos una letra mayúscula para fortalecer su contraseña."
+                )
+                return
+            
+            if not any(c.isdigit() for c in password):
+                self.show_custom_error(
+                    "Contraseña Inválida",
+                    "La contraseña debe contener al menos un número.",
+                    "Incluya al menos un número para fortalecer su contraseña."
+                )
+                return
                 
             DatabaseManager.register_user(username, password, role)
-            QMessageBox.information(self, "xito", "Usuario registrado correctamente")
+            self.show_custom_success(
+                "Registro Exitoso",
+                "¡Usuario registrado correctamente!",
+                "Ya puede iniciar sesión con sus credenciales."
+            )
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
+            self.show_custom_error(
+                "Error de Registro",
+                "No se pudo completar el registro.",
+                str(e)
+            )
 
-class LoginDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Inicio de Sesión")
-        self.setFixedWidth(300)
-        self.user_role = None
+    def show_custom_error(self, title, message, detail):
+        error_dialog = QDialog(self)
+        error_dialog.setWindowTitle(title)
+        error_dialog.setFixedWidth(400)
         
-        layout = QFormLayout(self)
-        
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        
-        layout.addRow("Usuario:", self.username_input)
-        layout.addRow("Contraseña:", self.password_input)
-        
-        buttons = QHBoxLayout()
-        
-        login_btn = QPushButton("Iniciar Sesión")
-        register_btn = QPushButton("Registrarse")
-        
-        login_btn.clicked.connect(self.login)
-        register_btn.clicked.connect(self.show_register)
-        
-        buttons.addWidget(login_btn)
-        buttons.addWidget(register_btn)
-        
-        layout.addRow(buttons)
+        layout = QVBoxLayout(error_dialog)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
 
-    def login(self):
-        try:
-            username = self.username_input.text()
-            password = self.password_input.text()
-            
-            if not all([username, password]):
-                raise ValueError("Todos los campos son obligatorios")
-                
-            success, role = DatabaseManager.validate_login(username, password)
-            if success:
-                self.user_role = role
-                self.accept()
-            else:
-                raise ValueError("Usuario o contraseña incorrectos")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
+        # Icono de error
+        icon_label = QLabel()
+        icon_label.setText("⚠️")
+        icon_label.setStyleSheet("""
+            QLabel {
+                color: #EF5350;
+                font-size: 48px;
+            }
+        """)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
 
-    def show_register(self):
-        dialog = RegisterDialog(self)
-        dialog.exec()
+        # Mensaje principal
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        """)
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message_label)
 
-    def get_user_role(self):
-        return self.user_role
+        # Detalle
+        detail_label = QLabel(detail)
+        detail_label.setWordWrap(True)
+        detail_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: 14px;
+            }}
+        """)
+        detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(detail_label)
+
+        # Botón de cerrar
+        close_btn = QPushButton("Entendido")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        close_btn.clicked.connect(error_dialog.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Estilo general del diálogo
+        error_dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+
+        error_dialog.exec()
+
+    def show_custom_success(self, title, message, detail):
+        success_dialog = QDialog(self)
+        success_dialog.setWindowTitle(title)
+        success_dialog.setFixedWidth(400)
+        
+        layout = QVBoxLayout(success_dialog)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        # Icono de éxito
+        icon_label = QLabel()
+        icon_label.setText("✅")
+        icon_label.setStyleSheet("""
+            QLabel {
+                color: #4CAF50;
+                font-size: 48px;
+            }
+        """)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        # Mensaje principal
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        """)
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message_label)
+
+        # Detalle
+        detail_label = QLabel(detail)
+        detail_label.setWordWrap(True)
+        detail_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: 14px;
+            }}
+        """)
+        detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(detail_label)
+
+        # Botón de cerrar
+        close_btn = QPushButton("Continuar")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['success']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: #43A047;
+            }}
+            QPushButton:pressed {{
+                background-color: #388E3C;
+            }}
+        """)
+        close_btn.clicked.connect(success_dialog.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Estilo general del diálogo
+        success_dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+
+        success_dialog.exec()
 
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
@@ -1260,6 +1780,31 @@ class AdminPanel(QDialog):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al guardar cambios: {str(e)}")
+
+# Función auxiliar para crear el estilo de input (para reutilizar en ambas clases)
+def create_input_style():
+    return f"""
+        QLineEdit {{
+            padding: 10px 12px;
+            border: 2px solid {COLORS['surface']};
+            border-radius: 6px;
+            background-color: {COLORS['surface']};
+            color: {COLORS['text']};
+            font-size: 14px;
+        }}
+        QLineEdit:focus {{
+            border: 2px solid {COLORS['primary']};
+            background-color: {COLORS['surface']};
+        }}
+        QLineEdit::placeholder {{
+            color: {COLORS['text_secondary']};
+            font-size: 15px;
+            opacity: 0.95;
+            font-weight: 450;
+            letter-spacing: 0.4px;
+        }}
+    """
+
 def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
