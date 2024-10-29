@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
-                             QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget)
+                             QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
+                             QHeaderView)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate
 from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont
 import pymysql
@@ -198,333 +199,289 @@ class MainWindow(QMainWindow):
         self.username = username
         self.user_role = user_role
         self.init_ui()
-        self.setup_user_info()
-        self.worker = None
-        self.progress_dialog = None
 
-    def setup_user_info(self):
-        """Configura o actualiza la información del usuario"""
-        # Buscar el widget contenedor existente y eliminarlo si existe
-        existing_user_info = self.findChild(QWidget, "user_info_widget")
-        if existing_user_info:
-            existing_user_info.deleteLater()
-
-        # Crear nuevo widget contenedor para la información de usuario y botón de cierre
-        user_info_widget = QWidget()
-        user_info_widget.setObjectName("user_info_widget")
-        user_info_layout = QHBoxLayout(user_info_widget)
-        user_info_layout.setContentsMargins(5, 5, 5, 5)
-        
-        # Etiqueta de información de usuario
-        user_info_label = QLabel(f"Sesion: {self.username} | Rol: {self.user_role}")
-        user_info_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 12px;
-                padding: 5px;
-                background-color: #363636;
-                border-radius: 3px;
-            }
-        """)
-        # Botón de cerrar sesión
-        logout_button = QPushButton("Cerrar Sesión")
-        logout_button.setStyleSheet("""
-            QPushButton {
-                background-color: #d32f2f;
-                color: white;
-                border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-size: 12px;
-            }6
-            QPushButton:hover {
-                background-color: #b71c1c;
-            }
-        """)
-        logout_button.clicked.connect(self.logout)
-        
-        user_info_layout.addWidget(user_info_label)
-        user_info_layout.addWidget(logout_button)
-        user_info_layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
-        # Añadir al layout principal
     def init_ui(self):
         self.setWindowTitle("Interfaz de Corporación Isla de Maipo")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1200, 700)
         self.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
-        # Aplicar estilo oscuro
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QTreeWidget {
-                background-color: #363636;
-                color: #ffffff;
-                border: 1px solid #555555;
-            }
-            QTreeWidget::item {
-                color: #ffffff;
-                background-color: #363636;
-            }
-            QTreeWidget::item:selected {
-                background-color: #4a4a4a;
-            }
-            QTreeWidget QHeaderView::section {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                padding: 5px;
-                border: 1px solid #555555;
-            }
-            QTreeWidget::branch {
-                background-color: #363636;
-                color: #ffffff;
-            }
-            QTreeWidget::branch:selected {
-                background-color: #4a4a4a;
-            }
-            QTableWidget {
-                background-color: #363636;
-                color: #ffffff;
-                gridline-color: #555555;
-            }
-            QTableWidget QHeaderView::section {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                padding: 5px;
-                border: 1px solid #555555;
-            }
-            QTableWidget::item {
-                color: #ffffff;
-                background-color: #363636;
-            }
-            QTableWidget::item:selected {
-                background-color: #4a4a4a;
-            }
-            QLineEdit {
-                background-color: #363636;
-                color: #ffffff;
-                border: 1px solid #555555;
-                padding: 5px;
-            }
-            QToolButton {
-                background-color: #363636;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 5px;
-            }
-            QToolButton:hover {
-                background-color: #4a4a4a;
-            }
-            QComboBox {
-                background-color: #363636;
-                color: #ffffff;
-                border: 1px solid #555555;
-                padding: 5px;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                background-color: #555555;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #363636;
-                color: #ffffff;
-                selection-background-color: #4a4a4a;
-            }
-        """)
+        
+        # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
 
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        main_layout.addWidget(left_widget)
+        # Panel izquierdo
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setSpacing(10)
 
-        # Agregar logo y título
+        # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(logo_label)
 
-        # Agregar título corporativo
+        # Título
         title_label = QLabel("Corporación de Isla de Maipo")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 14px;
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: white;
+                font-size: 18px;
                 font-weight: bold;
-                margin: 10px 0;
-            }
+                padding: 10px;
+                background-color: {COLORS['surface']};
+                border-radius: 8px;
+            }}
         """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(title_label)
-        # Agregar separador visual
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: #555555;")
-        left_layout.addWidget(separator)
 
-        # Creamos los botones "Agregar Datos", "Consultar Datos", "Eliminar Datos", "Modificar Datos" y "Reordenar IDs"
-        buttons_config = [
-            ("Agregar Datos", self.agregar_datos, "add_icon.png"),
-            ("Consultar Datos", self.consultar_datos, "search_icon.png"),
-            ("Eliminar Datos", self.eliminar_datos, "delete_icon.png"),
-            ("Modificar Datos", self.modificar_datos, "edit_icon.png"),
-            ("Administrar", self.show_admin_panel, "admin_icon.png"),
+        # Botones
+        buttons_data = [
+            ("Agregar Datos", self.agregar_datos),
+            ("Consultar Datos", self.consultar_datos),
+            ("Eliminar Datos", self.eliminar_datos),
+            ("Modificar Datos", self.modificar_datos),
+            ("Administrar", self.show_admin_panel)
         ]
-        for button_text, slot, icon_name in buttons_config:
-            self.create_tool_button(button_text, slot, icon_name, left_layout)
-        # Agregar separador visual después de los botones
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet("background-color: #555555;")
-        left_layout.addWidget(separator)
-        # Agregar widget de información de usuario
-        user_info_label = QLabel(f"Sesion: {self.username} | Rol: {self.user_role}")
-        user_info_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 12px;
-                padding: 5px;
-                background-color: #363636;
-                border-radius: 3px;
-                margin-top: 10px;
-            }
+
+        for text, slot in buttons_data:
+            btn = QPushButton(text)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface']};
+                    color: white;
+                    border: none;
+                    padding: 15px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    text-align: left;
+                    padding-left: 20px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['primary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {COLORS['primary_dark']};
+                }}
+            """)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(slot)
+            left_layout.addWidget(btn)
+
+        # Información de usuario
+        user_info = QLabel(f"Usuario: {self.username}\nRol: {self.user_role}")
+        user_info.setStyleSheet(f"""
+            QLabel {{
+                color: white;
+                background-color: {COLORS['surface']};
+                padding: 10px;
+                border-radius: 8px;
+                font-size: 13px;
+            }}
         """)
-        logout_button = QPushButton("Cerrar Sesión")
-        logout_button.setStyleSheet("""
-            QPushButton {
-                background-color: #d32f2f;
+        left_layout.addStretch()
+        left_layout.addWidget(user_info)
+
+        # Botón de cerrar sesión
+        logout_btn = QPushButton("Cerrar Sesión")
+        logout_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['error']};
                 color: white;
                 border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-size: 12px;
-                margin-top: 5px;
-            }
-            QPushButton:hover {
-                background-color: #b71c1c;
-            }
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #d32f2f;
+            }}
         """)
-        logout_button.clicked.connect(self.logout)
-        
-        left_layout.addWidget(user_info_label)
-        left_layout.addWidget(logout_button)
-        left_layout.addStretch()
+        logout_btn.clicked.connect(self.logout)
+        left_layout.addWidget(logout_btn)
 
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        main_layout.addWidget(right_widget)
+        # Agregar panel izquierdo al layout principal
+        main_layout.addWidget(left_panel, 1)
 
-        # Agregar la sección de búsqueda mejorada
-        search_widget = QWidget()
-        search_layout = QHBoxLayout(search_widget)
-        
-        # Combo para seleccionar columna
+        # Panel derecho con layout
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(20, 20, 20, 20)
+        right_layout.setSpacing(10)
+
+        # Contenedor para la barra de búsqueda y botones
+        search_container = QWidget()
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(10)
+
+        # Combo de búsqueda
         self.search_combo = QComboBox()
         self.search_combo.addItems([
             "Todos los campos",
-            "ID",
+            "Agrupar por Año",    # Nueva opción
+            "Agrupar por Estado", # Nueva opción
             "Fecha",
             "Establecimiento",
-            "Tipo Doc.",
-            "Nro. Doc.",
+            "Tipo Documento",
+            "Nro Documento",
             "Materia",
             "Destino",
             "Firma",
             "Estado"
         ])
-        search_layout.addWidget(self.search_combo)
-        
-        # Campo de búsqueda
+        self.search_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
+                min-width: 150px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 10px;
+            }}
+            QComboBox::down-arrow {{
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }}
+        """)
+
+        # Barra de búsqueda
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Buscar...")
-        search_layout.addWidget(self.search_bar)
-        
-        # Botón de búsqueda
-        self.search_button = QPushButton("Buscar")
-        self.search_button.clicked.connect(self.apply_filter)
-        search_layout.addWidget(self.search_button)
-        
-        # Botón para limpiar
-        self.clear_button = QPushButton("Limpiar")
-        self.clear_button.clicked.connect(self.clear_filter)
-        search_layout.addWidget(self.clear_button)
-        
-        right_layout.addWidget(search_widget)
+        self.search_bar.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px 12px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
+                font-size: 14px;
+                min-width: 300px;
+            }}
+            QLineEdit:focus {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QLineEdit::placeholder {{
+                color: {COLORS['text_secondary']};
+            }}
+        """)
 
-        # Agregar el QTreeWidget al lado derecho
+        # Botón de búsqueda
+        search_btn = QPushButton("Buscar")
+        search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        search_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 8px 15px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+                transform: translateY(-2px);
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+                transform: translateY(1px);
+            }}
+        """)
+        search_btn.clicked.connect(self.perform_search)
+
+        # Botón de limpiar
+        clear_btn = QPushButton("Limpiar")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 2px solid {COLORS['primary']};
+                padding: 8px 15px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+                border-color: {COLORS['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary_dark']};
+            }}
+        """)
+        clear_btn.clicked.connect(self.clear_search)
+
+        # Agregar widgets al layout de búsqueda
+        search_layout.addWidget(self.search_combo)
+        search_layout.addWidget(self.search_bar, 1)  # El 1 le da prioridad en el espacio
+        search_layout.addWidget(search_btn)
+        search_layout.addWidget(clear_btn)
+
+        # Agregar el contenedor de búsqueda al layout principal
+        right_layout.addWidget(search_container)
+
+        # TreeWidget para mostrar datos
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels([
-            "ID", "Fecha", "Establecimiento", "Tipo Doc.", 
-            "Nro. Doc.", "Materia", "Destino", "Firma", "Estado"
+            "ID", "Fecha", "Establecimiento", "Tipo Doc", 
+            "Nro Doc", "Materia", "Destino", "Firma", "Estado"
         ])
+        self.tree_widget.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 6px;
+            }}
+            QTreeWidget::item {{
+                padding: 5px;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {COLORS['primary']};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 5px;
+                border: none;
+            }}
+        """)
         right_layout.addWidget(self.tree_widget)
 
-        # Agregar barra de progreso
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
+        # Agregar el panel derecho al layout principal
+        main_layout.addWidget(right_panel, 4)
 
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                width: 10px;
-                margin: 0.5px;
-            }
+        # Estilo general de la ventana
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {COLORS['background']};
+            }}
+            QWidget {{
+                color: white;
+            }}
         """)
-        main_layout.addWidget(self.progress_bar)
 
-    def create_tool_button(self, text, slot, icon_name, layout):
-        button = QToolButton()
-        button.setText(text)
-        button.setIcon(QIcon(resource_path(icon_name)))
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        button.setIconSize(QSize(32, 32))
-        button.clicked.connect(slot)
-        button.setFixedSize(100, 80)
-        button.setObjectName(text)  # Asignamos un nombre al botón
-        layout.addWidget(button)
-
-    def run_with_progress(self, function, *args, **kwargs):
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-
-        self.worker = WorkerThread(function, *args, **kwargs)
-        self.worker.signals.finished.connect(self.on_worker_finished)
-        self.worker.signals.progress.connect(self.update_progress)
-        self.worker.start()
-
-    def on_worker_finished(self, success, message):
-        self.progress_bar.setVisible(False)
-        self.mostrar_mensaje("Éxito" if success else "Error", message, 
-                             QMessageBox.Icon.Information if success else QMessageBox.Icon.Critical)
-        self.consultar_datos()
-        self.worker.quit()
-        self.worker.wait()
-        self.worker = None
-
-    def update_progress(self, value):
-        self.progress_bar.setValue(value)
-
-    def mostrar_mensaje(self, titulo, mensaje, icono=QMessageBox.Icon.Information):
-        msg_box = QMessageBox(self)
-        msg_box.setIcon(icono)
-        msg_box.setText(mensaje)
-        msg_box.setWindowTitle(titulo)
-        msg_box.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
-        msg_box.exec()
+        # Conectar la señal del botón de búsqueda
+        search_btn.clicked.connect(self.perform_search)
+        # También permitir búsqueda al presionar Enter en la barra de búsqueda
+        self.search_bar.returnPressed.connect(self.perform_search)
 
     def agregar_datos(self):
         dialog = QDialog(self)
@@ -686,51 +643,59 @@ class MainWindow(QMainWindow):
             self.mostrar_mensaje("Error inesperado", f"Ocurrió un error al guardar los datos: {str(e)}", QMessageBox.Icon.Critical)
 
     def consultar_datos(self):
-        self.progress_dialog = ProgressDialog(self, title="Consulta de Datos", description="Consultando datos...")
-        self.progress_dialog.set_range(0, 100)
-        self.progress_dialog.show()
-
-        self.worker = WorkerThread(self.realizar_consulta)
-        self.worker.signals.finished.connect(self.on_consulta_finished)
-        self.worker.signals.progress.connect(self.progress_dialog.set_value)
-        self.worker.start()
-
-    def realizar_consulta(self, progress_callback):
         try:
-            total_registros = DatabaseManager.execute_query("SELECT COUNT(*) as total FROM documento")[0]['total']
-            resultados = DatabaseManager.execute_query("SELECT * FROM documento")
-            
+            # Configurar las columnas del TreeWidget
+            self.tree_widget.setColumnCount(9)
+            self.tree_widget.setHeaderLabels([
+                "ID", "Fecha", "Establecimiento", "Tipo Doc",
+                "Nro Doc", "Materia", "Destino", "Firma", "Estado"
+            ])
+
+            # Obtener los datos
+            resultados = DatabaseManager.execute_query(
+                "SELECT * FROM documento ORDER BY id_documento"
+            )
+
+            # Limpiar el TreeWidget
             self.tree_widget.clear()
-            
-            for i, registro in enumerate(resultados):
+
+            # Agregar los datos al TreeWidget
+            for registro in resultados:
                 item = QTreeWidgetItem(self.tree_widget)
                 item.setText(0, str(registro['id_documento']))
                 item.setText(1, str(registro['fecha']))
-                item.setText(2, registro['establecimiento'])
-                item.setText(3, registro['tipodocumento'])
-                item.setText(4, registro['nrodocumento'])
-                item.setText(5, registro['materia'])
-                item.setText(6, registro['destino'])
-                item.setText(7, registro['firma'])
-                item.setText(8, registro['estado'])
-                
-                progress = int(((i + 1) / total_registros) * 100)
-                progress_callback.emit(progress)
-                time.sleep(0.01)
-            
-            progress_callback.emit(100)
-            return True, f"Se consultaron {total_registros} registros exitosamente"
-        except Exception as e:
-            return False, f"No se pudieron consultar los datos: {str(e)}"
+                item.setText(2, str(registro['establecimiento']))
+                item.setText(3, str(registro['tipodocumento']))
+                item.setText(4, str(registro['nrodocumento']))
+                item.setText(5, str(registro['materia']))
+                item.setText(6, str(registro['destino']))
+                item.setText(7, str(registro['firma']))
+                item.setText(8, str(registro['estado']))
 
-    def on_consulta_finished(self, success, message):
-        self.progress_dialog.close()
-        self.progress_dialog = None
-        self.mostrar_mensaje("Éxito" if success else "Error", message, 
-                             QMessageBox.Icon.Information if success else QMessageBox.Icon.Critical)
-        self.worker.quit()
-        self.worker.wait()
-        self.worker = None
+            # Ajustar el ancho de las columnas
+            for i in range(9):
+                self.tree_widget.resizeColumnToContents(i)
+
+            # Mostrar mensaje de éxito
+            QMessageBox.information(
+                self,
+                "Consulta exitosa",
+                f"Se cargaron {len(resultados)} registros"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al consultar datos: {str(e)}"
+            )
+
+    def mostrar_mensaje(self, titulo, mensaje, icono=QMessageBox.Icon.Information):
+        msg = QMessageBox(self)
+        msg.setWindowTitle(titulo)
+        msg.setText(mensaje)
+        msg.setIcon(icono)
+        msg.exec()
 
     def eliminar_datos(self):
         selected_items = self.tree_widget.selectedItems()
@@ -927,11 +892,192 @@ class MainWindow(QMainWindow):
             self.worker.wait()
         event.accept()
 
-    def filter_tree_widget(self, text):
+    def perform_search(self):
+        """Realizar la búsqueda con agrupación automática"""
+        search_text = self.search_bar.text().strip().lower()
+        search_field = self.search_combo.currentText()
+
+        try:
+            # Obtener todos los registros
+            resultados = DatabaseManager.execute_query(
+                "SELECT * FROM documento ORDER BY fecha DESC"
+            )
+
+            # Limpiar el TreeWidget
+            self.tree_widget.clear()
+
+            # Mapeo de campos a índices
+            column_indices = {
+                "Todos los campos": -1,
+                "Fecha": 1,
+                "Establecimiento": 2,
+                "Tipo Documento": 3,
+                "Nro Documento": 4,
+                "Materia": 5,
+                "Destino": 6,
+                "Firma": 7,
+                "Estado": 8
+            }
+
+            # Filtrar resultados
+            search_column = column_indices.get(search_field, -1)
+            resultados_filtrados = []
+
+            for registro in resultados:
+                if search_text:  # Solo filtrar si hay texto de búsqueda
+                    if search_column == -1:  # Todos los campos
+                        valores = [str(v) for v in registro.values()]
+                        if any(search_text in str(valor).lower() for valor in valores):
+                            resultados_filtrados.append(registro)
+                    else:
+                        campo = list(registro.values())[search_column]
+                        if search_text in str(campo).lower():
+                            resultados_filtrados.append(registro)
+                else:
+                    resultados_filtrados = resultados
+
+            # Agrupar resultados por año y estado
+            grupos_año = {}
+            for registro in resultados_filtrados:
+                # Extraer el año de la fecha
+                fecha = str(registro['fecha'])
+                año = fecha.split('-')[0] if '-' in fecha else 'Sin Año'
+                
+                if año not in grupos_año:
+                    grupos_año[año] = {'registros': [], 'estados': {}}
+                grupos_año[año]['registros'].append(registro)
+                
+                # Subgrupo por estado
+                estado = registro['estado'] or 'Sin Estado'
+                if estado not in grupos_año[año]['estados']:
+                    grupos_año[año]['estados'][estado] = []
+                grupos_año[año]['estados'][estado].append(registro)
+
+            # Mostrar resultados agrupados
+            total_registros = 0
+            años_ordenados = sorted(grupos_año.keys(), reverse=True)
+
+            for año in años_ordenados:
+                registros_año = grupos_año[año]['registros']
+                # Crear grupo de año
+                año_item = QTreeWidgetItem(self.tree_widget)
+                año_item.setText(0, f"▼ Año {año} ({len(registros_año)} documentos)")
+                año_item.setExpanded(True)
+
+                # Estilo para el grupo de año
+                for col in range(9):
+                    año_item.setBackground(col, QColor(COLORS['primary_dark']))
+                    font = año_item.font(col)
+                    font.setBold(True)
+                    año_item.setFont(col, font)
+
+                # Subgrupos por estado
+                estados = grupos_año[año]['estados']
+                for estado, registros_estado in estados.items():
+                    # Crear subgrupo de estado
+                    estado_item = QTreeWidgetItem(año_item)
+                    estado_item.setText(0, f"▼ Estado: {estado} ({len(registros_estado)} documentos)")
+                    estado_item.setExpanded(True)
+
+                    # Estilo para el subgrupo de estado
+                    for col in range(9):
+                        estado_item.setBackground(col, QColor(COLORS['surface']))
+                        font = estado_item.font(col)
+                        font.setBold(True)
+                        estado_item.setFont(col, font)
+
+                    # Agregar registros al subgrupo
+                    for registro in registros_estado:
+                        item = QTreeWidgetItem(estado_item)
+                        item.setText(0, str(registro['id_documento']))
+                        item.setText(1, str(registro['fecha']))
+                        item.setText(2, str(registro['establecimiento']))
+                        item.setText(3, str(registro['tipodocumento']))
+                        item.setText(4, str(registro['nrodocumento']))
+                        item.setText(5, str(registro['materia']))
+                        item.setText(6, str(registro['destino']))
+                        item.setText(7, str(registro['firma']))
+                        item.setText(8, str(registro['estado']))
+                        total_registros += 1
+
+            # Ajustar columnas
+            for i in range(9):
+                self.tree_widget.resizeColumnToContents(i)
+
+            # Mostrar mensaje con resultados
+            if search_text:
+                QMessageBox.information(
+                    self,
+                    "Resultados de búsqueda",
+                    f"Se encontraron {total_registros} registros que coinciden con '{search_text}'\n"
+                    f"Agrupados en {len(grupos_año)} años diferentes"
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Registros agrupados",
+                    f"Se muestran {total_registros} registros\n"
+                    f"Agrupados en {len(grupos_año)} años diferentes"
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al realizar la búsqueda: {str(e)}"
+            )
+
+    def clear_search(self):
+        """Limpiar la búsqueda y mostrar todos los registros sin agrupar"""
+        self.search_bar.clear()
+        self.search_combo.setCurrentIndex(0)
+        
+        try:
+            # Recargar todos los datos sin agrupar
+            resultados = DatabaseManager.execute_query(
+                "SELECT * FROM documento ORDER BY id_documento"
+            )
+            
+            self.tree_widget.clear()
+            for registro in resultados:
+                item = QTreeWidgetItem(self.tree_widget)
+                item.setText(0, str(registro['id_documento']))
+                item.setText(1, str(registro['fecha']))
+                item.setText(2, str(registro['establecimiento']))
+                item.setText(3, str(registro['tipodocumento']))
+                item.setText(4, str(registro['nrodocumento']))
+                item.setText(5, str(registro['materia']))
+                item.setText(6, str(registro['destino']))
+                item.setText(7, str(registro['firma']))
+                item.setText(8, str(registro['estado']))
+
+            # Ajustar columnas
+            for i in range(9):
+                self.tree_widget.resizeColumnToContents(i)
+
+            QMessageBox.information(
+                self,
+                "Búsqueda limpiada",
+                f"Se están mostrando todos los registros ({len(resultados)})"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al limpiar la búsqueda: {str(e)}"
+            )
+
+    # Método auxiliar para depuración
+    def print_tree_content(self):
+        """Imprimir el contenido del TreeWidget para depuración"""
+        print("\nContenido del TreeWidget:")
         for i in range(self.tree_widget.topLevelItemCount()):
             item = self.tree_widget.topLevelItem(i)
-            should_show = any(text.lower() in item.text(j).lower() for j in range(item.columnCount()))
-            item.setHidden(not should_show)
+            row_content = []
+            for j in range(item.columnCount()):
+                row_content.append(item.text(j))
+            print(f"Fila {i}: {row_content}")
 
     def show_admin_panel(self):
         dialog = AdminPanel(self)
@@ -963,8 +1109,7 @@ class MainWindow(QMainWindow):
                 else:  # usuario normal
                     # Usuario normal solo ve consultar
                     if button.objectName() not in ["Consultar Datos"]:
-                        button.setVisible(False)
-            
+                        button.setVisible(False)  
             self.show()
         else:
             QApplication.instance().quit()
@@ -1408,45 +1553,59 @@ class RegisterDialog(QDialog):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(10)
 
-        # Botón de registro
+        # Botón de registro con animaciones y efectos mejorados
         register_btn = QPushButton("Registrar Usuario")
         register_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['primary']};
                 color: {COLORS['text']};
                 border: none;
-                padding: 12px;
+                padding: 12px 20px;
                 border-radius: 6px;
                 font-size: 14px;
                 font-weight: bold;
+                min-width: 150px;
+                transition: all 0.3s;
+                position: relative;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             }}
             QPushButton:hover {{
                 background-color: {COLORS['primary_dark']};
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             }}
             QPushButton:pressed {{
                 background-color: {COLORS['primary']};
+                transform: translateY(1px);
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
             }}
         """)
         register_btn.clicked.connect(self.register)
         buttons_layout.addWidget(register_btn)
 
-        # Botón de cancelar
+        # Botón cancelar con animaciones mejoradas
         cancel_btn = QPushButton("Cancelar")
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: transparent;
                 color: {COLORS['error']};
                 border: 2px solid {COLORS['error']};
-                padding: 12px;
+                padding: 12px 20px;
                 border-radius: 6px;
                 font-size: 14px;
                 font-weight: bold;
+                min-width: 150px;
+                transition: all 0.3s;
             }}
             QPushButton:hover {{
-                background-color: rgba(244, 67, 54, 0.1);
+                background-color: {COLORS['error']};
+                color: {COLORS['text']};
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(239, 83, 80, 0.2);
             }}
             QPushButton:pressed {{
-                background-color: rgba(244, 67, 54, 0.2);
+                transform: translateY(1px);
+                box-shadow: none;
             }}
         """)
         cancel_btn.clicked.connect(self.reject)
@@ -1699,35 +1858,294 @@ class RegisterDialog(QDialog):
 
         success_dialog.exec()
 
+    def validate_username(self):
+        text = self.username_input.text()
+        validation_result = {
+            'valid': True,
+            'message': "",
+            'details': []
+        }
+
+        # Validaciones con mensajes detallados
+        if len(text) < 4:
+            validation_result['valid'] = False
+            validation_result['message'] = "Usuario demasiado corto"
+            validation_result['details'] = [
+                "Mínimo 4 caracteres requeridos",
+                f"Actualmente: {len(text)} caracteres"
+            ]
+        elif not text.isalnum():
+            validation_result['valid'] = False
+            validation_result['message'] = "Caracteres no permitidos"
+            validation_result['details'] = [
+                "Solo se permiten letras y números",
+                "No usar espacios ni caracteres especiales"
+            ]
+        else:
+            validation_result['message'] = "Usuario válido"
+            validation_result['details'] = [
+                "Formato correcto",
+                "Longitud adecuada"
+            ]
+
+        self.update_field_status(
+            self.username_status, 
+            self.username_input,
+            validation_result
+        )
+        return validation_result['valid']
+
+    def validate_password(self):
+        text = self.password_input.text()
+        validation_result = {
+            'valid': True,
+            'message': "",
+            'details': []
+        }
+
+        # Lista de verificación de requisitos
+        requirements = []
+        requirements.append(('length', len(text) >= 8, "Mínimo 8 caracteres"))
+        requirements.append(('uppercase', any(c.isupper() for c in text), "Una mayúscula"))
+        requirements.append(('digit', any(c.isdigit() for c in text), "Un número"))
+
+        # Verificar requisitos
+        failed_requirements = [req[2] for req in requirements if not req[1]]
+
+        if failed_requirements:
+            validation_result['valid'] = False
+            validation_result['message'] = "Contraseña débil"
+            validation_result['details'] = [
+                "Requisitos faltantes:",
+                *failed_requirements
+            ]
+        else:
+            validation_result['message'] = "Contraseña segura"
+            validation_result['details'] = [
+                "Cumple todos los requisitos",
+                "✓ Longitud adecuada",
+                "✓ Incluye mayúsculas",
+                "✓ Incluye números"
+            ]
+
+        self.update_field_status(
+            self.password_status,
+            self.password_input,
+            validation_result
+        )
+        return validation_result['valid']
+
+    def update_field_status(self, status_label, input_field, validation):
+        # Actualizar el icono y tooltip
+        icon = "✓" if validation['valid'] else "⚠️"
+        
+        # Crear tooltip detallado
+        tooltip = f"""
+        <h3 style='color: {"#4CAF50" if validation["valid"] else "#EF5350"};'>
+            {validation['message']}
+        </h3>
+        <ul style='margin: 5px 0;'>
+            {"".join(f"<li>{detail}</li>" for detail in validation['details'])}
+        </ul>
+        """
+        
+        # Actualizar el estilo del campo según validación
+        input_field.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 10px 12px;
+                border: 2px solid {COLORS['success'] if validation['valid'] else COLORS['error']};
+                border-radius: 6px;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                font-size: 14px;
+                transition: all 0.3s;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {COLORS['primary']};
+            }}
+            QLineEdit::placeholder {{
+                color: {COLORS['text_secondary']};
+                font-size: 15px;
+                opacity: 0.95;
+                font-weight: 450;
+                letter-spacing: 0.4px;
+            }}
+        """)
+
+        # Actualizar el label de estado
+        status_label.setText(icon)
+        status_label.setToolTip(tooltip)
+        status_label.setStyleSheet("""
+            QLabel {
+                margin-left: 5px;
+                font-size: 16px;
+                padding: 5px;
+            }
+            QToolTip {
+                background-color: #2b2b2b;
+                color: white;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Panel de Administración")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(400)
-        
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(600)
+        self.setup_ui()
+
+    def setup_ui(self):
         layout = QVBoxLayout(self)
-        
+        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Título
+        title_label = QLabel("Administración de Usuarios")
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 24px;
+                font-weight: bold;
+                padding: 10px;
+                background-color: {COLORS['surface']};
+                border-radius: 8px;
+            }}
+        """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
         # Tabla de usuarios
         self.user_table = QTableWidget()
         self.user_table.setColumnCount(3)
         self.user_table.setHorizontalHeaderLabels(["Usuario", "Rol Actual", "Nuevo Rol"])
-        self.user_table.horizontalHeader().setStretchLastSection(True)
+        self.user_table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 8px;
+                gridline-color: {COLORS['primary']};
+            }}
+            QTableWidget::item {{
+                padding: 10px;
+                border-bottom: 1px solid {COLORS['primary']};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {COLORS['primary']};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS['primary_dark']};
+                color: {COLORS['text']};
+                padding: 10px;
+                border: none;
+                font-weight: bold;
+            }}
+            QScrollBar:vertical {{
+                background: {COLORS['surface']};
+                width: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {COLORS['primary']};
+                border-radius: 5px;
+            }}
+        """)
         layout.addWidget(self.user_table)
-        
-        # Botones de acción
-        button_layout = QHBoxLayout()
-        
+
+        # Contenedor de botones
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setSpacing(10)
+
+        # Botón Actualizar
+        refresh_button = QPushButton("Actualizar Lista")
+        refresh_button.clicked.connect(self.load_users)
+        refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 2px solid {COLORS['primary']};
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+                border-color: {COLORS['primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary_dark']};
+            }}
+        """)
+
+        # Botón Guardar
         save_button = QPushButton("Guardar Cambios")
         save_button.clicked.connect(self.save_changes)
-        
-        refresh_button = QPushButton("Actualizar")
-        refresh_button.clicked.connect(self.load_users)
-        
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+                transform: translateY(-2px);
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+                transform: translateY(1px);
+            }}
+        """)
+
         button_layout.addWidget(refresh_button)
         button_layout.addWidget(save_button)
-        layout.addLayout(button_layout)
-        
+        layout.addWidget(button_container)
+
+        # Estilo del ComboBox para roles
+        self.combo_style = f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 5px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+            }}
+        """
+
+        # Estilo general del diálogo
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+
         self.load_users()
 
     def load_users(self):
@@ -1742,17 +2160,27 @@ class AdminPanel(QDialog):
             
             for i, user in enumerate(users):
                 # Usuario
-                self.user_table.setItem(i, 0, QTableWidgetItem(user['nombreusuario']))
+                username_item = QTableWidgetItem(user['nombreusuario'])
+                username_item.setForeground(QColor(COLORS['text']))
+                self.user_table.setItem(i, 0, username_item)
                 
                 # Rol actual
-                self.user_table.setItem(i, 1, QTableWidgetItem(user['rol']))
+                current_role_item = QTableWidgetItem(user['rol'])
+                current_role_item.setForeground(QColor(COLORS['text']))
+                self.user_table.setItem(i, 1, current_role_item)
                 
                 # Combo box para nuevo rol
                 role_combo = QComboBox()
                 role_combo.addItems(["usuario", "recepcionista", "admin"])
                 role_combo.setCurrentText(user['rol'])
+                role_combo.setStyleSheet(self.combo_style)
                 self.user_table.setCellWidget(i, 2, role_combo)
-                
+
+            # Ajustar tamaño de columnas
+            self.user_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.user_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            self.user_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
 
