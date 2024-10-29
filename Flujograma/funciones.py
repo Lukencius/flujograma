@@ -9,6 +9,7 @@ import sys
 import os
 import time
 import sqlite3
+import hashlib
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -79,6 +80,75 @@ class DatabaseManager:
             print(f"Error al reordenar IDs: {str(e)}")
             return False
 
+    @staticmethod
+    def init_user_table():
+        query = """
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(50) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        DatabaseManager.execute_query(query)
+
+    @staticmethod
+    def register_user(username, password, email):
+        query = """
+        INSERT INTO usuarios (username, password, email)
+        VALUES (%s, %s, %s)
+        """
+        DatabaseManager.execute_query(query, (username, password, email))
+
+    @staticmethod
+    def validate_login(username, password):
+        query = """
+        SELECT * FROM usuarios 
+        WHERE username = %s AND password = %s
+        """
+        result = DatabaseManager.execute_query(query, (username, password))
+        return len(result) > 0
+
+    @staticmethod
+    def generate_salt():
+        return os.urandom(32).hex()
+
+    @staticmethod
+    def hash_password(password, salt):
+        return hashlib.sha256((password + salt).encode()).hexdigest()
+
+    @staticmethod
+    def register_user(nombreusuario, password, rol="usuario"):
+        try:
+            salt = DatabaseManager.generate_salt()
+            password_hash = DatabaseManager.hash_password(password, salt)
+            
+            query = """
+            INSERT INTO usuario (nombreusuario, rol, password_hash, salt)
+            VALUES (%s, %s, %s, %s)
+            """
+            DatabaseManager.execute_query(query, (nombreusuario, rol, password_hash, salt))
+            return True
+        except Exception as e:
+            raise Exception(f"Error al registrar usuario: {str(e)}")
+
+    @staticmethod
+    def validate_login(nombreusuario, password):
+        query = """
+        SELECT password_hash, salt, rol 
+        FROM usuario 
+        WHERE nombreusuario = %s
+        """
+        result = DatabaseManager.execute_query(query, (nombreusuario,))
+        
+        if result:
+            user = result[0]
+            password_hash = DatabaseManager.hash_password(password, user['salt'])
+            if password_hash == user['password_hash']:
+                return True, user['rol']
+        return False, None
+
 class ProgressDialog(QDialog):
     def __init__(self, parent=None, title="Progreso", description="Procesando..."):
         super().__init__(parent)
@@ -140,7 +210,7 @@ class MainWindow(QMainWindow):
             ("Consultar Datos", self.consultar_datos, "search_icon.png"),
             ("Eliminar Datos", self.eliminar_datos, "delete_icon.png"),
             ("Modificar Datos", self.modificar_datos, "edit_icon.png"),
-            ("Reordenar IDs", self.reordenar_ids, "reorder_icon.png"),
+            # ("Reordenar IDs", self.reordenar_ids, "reorder_icon.png"),
         ]
         
         for button_text, slot, icon_name in buttons_config:
@@ -479,12 +549,127 @@ class MainWindow(QMainWindow):
             should_show = any(text.lower() in item.text(j).lower() for j in range(item.columnCount()))
             item.setHidden(not should_show)
 
+class RegisterDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Registro de Usuario")
+        self.setFixedWidth(300)
+        
+        layout = QFormLayout(self)
+        
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirm_password_input = QLineEdit()
+        self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        
+        layout.addRow("Usuario:", self.username_input)
+        layout.addRow("Contraseña:", self.password_input)
+        layout.addRow("Confirmar Contraseña:", self.confirm_password_input)
+        
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.register)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def register(self):
+        try:
+            username = self.username_input.text()
+            password = self.password_input.text()
+            confirm_password = self.confirm_password_input.text()
+            
+            if not all([username, password, confirm_password]):
+                raise ValueError("Todos los campos son obligatorios")
+            
+            if password != confirm_password:
+                raise ValueError("Las contraseñas no coinciden")
+            
+            if len(password) < 8:
+                raise ValueError("La contraseña debe tener al menos 8 caracteres")
+                
+            DatabaseManager.register_user(username, password)
+            QMessageBox.information(self, "Éxito", "Usuario registrado correctamente")
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Inicio de Sesión")
+        self.setFixedWidth(300)
+        self.user_role = None
+        
+        layout = QFormLayout(self)
+        
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        
+        layout.addRow("Usuario:", self.username_input)
+        layout.addRow("Contraseña:", self.password_input)
+        
+        buttons = QHBoxLayout()
+        
+        login_btn = QPushButton("Iniciar Sesión")
+        register_btn = QPushButton("Registrarse")
+        
+        login_btn.clicked.connect(self.login)
+        register_btn.clicked.connect(self.show_register)
+        
+        buttons.addWidget(login_btn)
+        buttons.addWidget(register_btn)
+        
+        layout.addRow(buttons)
+
+    def login(self):
+        try:
+            username = self.username_input.text()
+            password = self.password_input.text()
+            
+            if not all([username, password]):
+                raise ValueError("Todos los campos son obligatorios")
+                
+            success, role = DatabaseManager.validate_login(username, password)
+            if success:
+                self.user_role = role
+                self.accept()
+            else:
+                raise ValueError("Usuario o contraseña incorrectos")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def show_register(self):
+        dialog = RegisterDialog(self)
+        dialog.exec()
+
+    def get_user_role(self):
+        return self.user_role
+
 def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(resource_path("image.jpeg")))
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    
+    # Mostramos el diálogo de login
+    login = LoginDialog()
+    if login.exec() == QDialog.DialogCode.Accepted:
+        user_role = login.get_user_role()
+        window = MainWindow()
+        
+        # Aquí puedes configurar la ventana según el rol del usuario
+        if user_role != "admin":
+            # Deshabilitar ciertas funciones para usuarios no administradores
+            for button in window.findChildren(QToolButton):
+                if button.objectName() in ["Eliminar Datos", "Modificar Datos"]:
+                    button.setEnabled(False)
+        
+        window.show()
+        sys.exit(app.exec())
+    else:
+        sys.exit()
 
 if __name__ == "__main__":
     main()
