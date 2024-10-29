@@ -14,7 +14,7 @@ import sqlite3
 DB_CONFIG = {
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
-    "db": "pruebadedatos",
+    "db": "FLUJOGRAMA",
     "host": "servicioalochoro-prueba1631.l.aivencloud.com",
     "password": "AVNS_XIL6StsPZSOwo0ZxNfr",
     "port": 15140,
@@ -57,17 +57,17 @@ class DatabaseManager:
 
     @staticmethod
     def get_last_id():
-        result = DatabaseManager.execute_query("SELECT MAX(id) as max_id FROM mamabichosricos")
+        result = DatabaseManager.execute_query("SELECT MAX(id) as max_id FROM documento")
         return result[0]['max_id'] if result else 0
 
     @staticmethod
     def reordenar_ids(progress_callback):
         try:
-            registros = DatabaseManager.execute_query("SELECT * FROM mamabichosricos ORDER BY id")
+            registros = DatabaseManager.execute_query("SELECT * FROM documento ORDER BY id")
             total = len(registros)
             for i, registro in enumerate(registros, start=1):
                 DatabaseManager.execute_query(
-                    "UPDATE mamabichosricos SET id = %s WHERE id = %s",
+                    "UPDATE documento SET id = %s WHERE id = %s",
                     (i, registro['id'])
                 )
                 # Simulamos un proceso más largo para ver la barra de progreso
@@ -160,7 +160,10 @@ class MainWindow(QMainWindow):
 
         # Agregar el QTreeWidget al lado derecho
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["ID", "Nombre", "Nivel de mamador"])
+        self.tree_widget.setHeaderLabels([
+            "ID", "Fecha", "Establecimiento", "Tipo Doc.", 
+            "Nro. Doc.", "Materia", "Destino", "Firma", "Estado"
+        ])
         right_layout.addWidget(self.tree_widget)
 
         # Agregar barra de progreso
@@ -223,52 +226,57 @@ class MainWindow(QMainWindow):
 
     def agregar_datos(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Agregar Datos")
-        layout = QVBoxLayout(dialog)
+        dialog.setWindowTitle("Agregar Documento")
+        layout = QFormLayout(dialog)
 
-        nombre_layout = QHBoxLayout()
-        nombre_label = QLabel("Nombre:")
-        nombre_input = QLineEdit()
-        nombre_layout.addWidget(nombre_label)
-        nombre_layout.addWidget(nombre_input)
+        # Crear inputs para cada campo
+        inputs = {
+            'fecha': QLineEdit(),
+            'establecimiento': QLineEdit(),
+            'tipodocumento': QLineEdit(),
+            'nrodocumento': QLineEdit(),
+            'materia': QLineEdit(),
+            'destino': QLineEdit(),
+            'firma': QLineEdit(),
+            'estado': QLineEdit()
+        }
 
-        nivel_layout = QHBoxLayout()
-        nivel_label = QLabel("Nivel de mamador:")
-        nivel_mamador_input = QLineEdit()
-        nivel_layout.addWidget(nivel_label)
-        nivel_layout.addWidget(nivel_mamador_input)
-
-        layout.addLayout(nombre_layout)
-        layout.addLayout(nivel_layout)
+        # Agregar campos al formulario
+        for label, input_field in inputs.items():
+            layout.addRow(label.capitalize() + ":", input_field)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        layout.addWidget(buttons)
+        layout.addRow(buttons)
 
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
 
-        # Conectar la señal returnPressed de los QLineEdit al método accept del diálogo
-        nombre_input.returnPressed.connect(dialog.accept)
-        nivel_mamador_input.returnPressed.connect(dialog.accept)
-
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            nombre = nombre_input.text()
-            nivel_mamador = nivel_mamador_input.text()
-
             try:
-                # Obtener el siguiente ID disponible
-                new_id = DatabaseManager.get_last_id() + 1
-                
-                # Insertar los nuevos datos en la base de datos
                 DatabaseManager.execute_query(
-                    "INSERT INTO mamabichosricos(id, nombre, niveldemamador) VALUES(%s, %s, %s)",
-                    (new_id, nombre, nivel_mamador)
+                    """INSERT INTO documento(
+                        fecha, establecimiento, tipodocumento, 
+                        nrodocumento, materia, destino, firma, estado
+                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (inputs['fecha'].text(),
+                     inputs['establecimiento'].text(),
+                     inputs['tipodocumento'].text(),
+                     inputs['nrodocumento'].text(),
+                     inputs['materia'].text(),
+                     inputs['destino'].text(),
+                     inputs['firma'].text(),
+                     inputs['estado'].text())
                 )
                 
-                self.mostrar_mensaje("Éxito", f"Datos agregados exitosamente con ID: {new_id}")
-                self.consultar_datos()  # Actualizar la vista
+                # Obtener el ID del registro recién insertado
+                last_id = DatabaseManager.execute_query(
+                    "SELECT LAST_INSERT_ID() as id"
+                )[0]['id']
+                
+                self.mostrar_mensaje("Éxito", f"Documento agregado exitosamente con ID: {last_id}")
+                self.consultar_datos()
             except Exception as e:
-                self.mostrar_mensaje("Error", f"No se pudo agregar el registro: {str(e)}", QMessageBox.Icon.Critical)
+                self.mostrar_mensaje("Error", f"No se pudo agregar el documento: {str(e)}", QMessageBox.Icon.Critical)
 
     def guardar_datos_seguro(self):
         try:
@@ -276,17 +284,25 @@ class MainWindow(QMainWindow):
             if not all(data.values()):
                 raise ValueError("Todos los campos deben estar llenos")
             
-            new_id = DatabaseManager.get_last_id() + 1
-            
             DatabaseManager.execute_query(
-                "INSERT INTO mamabichosricos(id, nombre, niveldemamador) VALUES(%s, %s, %s)",
-                (new_id, data['nombre'], data['nivel de mamador'])
+                """INSERT INTO documento(
+                    fecha, establecimiento, tipodocumento, 
+                    nrodocumento, materia, destino, firma, estado
+                ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (data['fecha'],
+                 data['establecimiento'],
+                 data['tipodocumento'],
+                 data['nrodocumento'],
+                 data['materia'],
+                 data['destino'],
+                 data['firma'],
+                 data['estado'])
             )
             
             for entry in self.entries.values():
                 entry.clear()
             
-            self.mostrar_mensaje("Éxito", f"Datos agregados exitosamente con ID: {new_id}")
+            self.mostrar_mensaje("Éxito", "Datos agregados exitosamente")
         except ValueError as e:
             self.mostrar_mensaje("Error de validación", str(e), QMessageBox.Icon.Warning)
         except Exception as e:
@@ -304,40 +320,30 @@ class MainWindow(QMainWindow):
 
     def realizar_consulta(self, progress_callback):
         try:
-            # Obtener el total de registros para configurar la barra de progreso
-            total_registros = DatabaseManager.execute_query("SELECT COUNT(*) as total FROM mamabichosricos")[0]['total']
+            total_registros = DatabaseManager.execute_query("SELECT COUNT(*) as total FROM documento")[0]['total']
+            resultados = DatabaseManager.execute_query("SELECT * FROM documento")
             
-            # Ejecutar la consulta
-            resultados = DatabaseManager.execute_query("SELECT * FROM mamabichosricos")
-            
-            # Limpiar el árbol antes de agregar nuevos datos
             self.tree_widget.clear()
             
-            # Simular un proceso más largo
-            total_steps = max(100, total_registros)  # Asegurar al menos 100 pasos
-            
-            # Agregar los resultados al árbol
             for i, registro in enumerate(resultados):
                 item = QTreeWidgetItem(self.tree_widget)
-                item.setText(0, str(registro['id']))
-                item.setText(1, registro['nombre'])
-                item.setText(2, str(registro['niveldemamador']))
+                item.setText(0, str(registro['id_documento']))
+                item.setText(1, str(registro['fecha']))
+                item.setText(2, registro['establecimiento'])
+                item.setText(3, registro['tipodocumento'])
+                item.setText(4, registro['nrodocumento'])
+                item.setText(5, registro['materia'])
+                item.setText(6, registro['destino'])
+                item.setText(7, registro['firma'])
+                item.setText(8, registro['estado'])
                 
-                # Calcular el progreso
                 progress = int(((i + 1) / total_registros) * 100)
-                
-                # Actualizar la barra de progreso
                 progress_callback.emit(progress)
-                
-                # Simular un proceso más largo
-                time.sleep(0.01)  # Añadir un pequeño retraso
+                time.sleep(0.01)
             
-            # Asegurar que la barra llegue al 100%
             progress_callback.emit(100)
-            
             return True, f"Se consultaron {total_registros} registros exitosamente"
         except Exception as e:
-            print(f"Error detallado: {e}")  # Imprimir el error detallado en la consola
             return False, f"No se pudieron consultar los datos: {str(e)}"
 
     def on_consulta_finished(self, success, message):
@@ -364,7 +370,7 @@ class MainWindow(QMainWindow):
         
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                DatabaseManager.execute_query("DELETE FROM mamabichosricos WHERE id = %s", (id_to_delete,))
+                DatabaseManager.execute_query("DELETE FROM documento WHERE id = %s", (id_to_delete,))
                 self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_delete} eliminado exitosamente")
                 self.consultar_datos()  # Actualizamos la vista después de eliminar
             except Exception as e:
@@ -378,52 +384,48 @@ class MainWindow(QMainWindow):
 
         item = selected_items[0]
         id_to_modify = item.text(0)
-        nombre_actual = item.text(1)
-        nivel_actual = item.text(2)
 
-        # Crear una ventana de diálogo para ingresar los nuevos datos
         dialog = QDialog(self)
-        dialog.setWindowTitle("Modificar Datos")
-        dialog.setWindowIcon(QIcon(resource_path("image.jpeg")))
-        layout = QVBoxLayout(dialog)
+        dialog.setWindowTitle("Modificar Documento")
+        layout = QFormLayout(dialog)
 
-        nombre_layout = QHBoxLayout()
-        nombre_label = QLabel("Nombre:")
-        nombre_input = QLineEdit(nombre_actual)
-        nombre_layout.addWidget(nombre_label)
-        nombre_layout.addWidget(nombre_input)
+        # Crear inputs con los valores actuales
+        inputs = {
+            'fecha': QLineEdit(item.text(1)),
+            'establecimiento': QLineEdit(item.text(2)),
+            'tipodocumento': QLineEdit(item.text(3)),
+            'nrodocumento': QLineEdit(item.text(4)),
+            'materia': QLineEdit(item.text(5)),
+            'destino': QLineEdit(item.text(6)),
+            'firma': QLineEdit(item.text(7)),
+            'estado': QLineEdit(item.text(8))
+        }
 
-        nivel_layout = QHBoxLayout()
-        nivel_label = QLabel("Nivel de mamador:")
-        nivel_input = QLineEdit(nivel_actual)
-        nivel_layout.addWidget(nivel_label)
-        nivel_layout.addWidget(nivel_input)
-
-        layout.addLayout(nombre_layout)
-        layout.addLayout(nivel_layout)
+        for label, input_field in inputs.items():
+            layout.addRow(label.capitalize() + ":", input_field)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addRow(buttons)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        # Conectar la señal returnPressed de los QLineEdit al método accept del diálogo
-        nombre_input.returnPressed.connect(dialog.accept)
-        nivel_input.returnPressed.connect(dialog.accept)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            nuevo_nombre = nombre_input.text()
-            nuevo_nivel = nivel_input.text()
-
             try:
                 DatabaseManager.execute_query(
-                    "UPDATE mamabichosricos SET nombre = %s, niveldemamador = %s WHERE id = %s",
-                    (nuevo_nombre, nuevo_nivel, id_to_modify)
+                    """UPDATE documento SET 
+                        fecha = %s, establecimiento = %s, tipodocumento = %s,
+                        nrodocumento = %s, materia = %s, destino = %s,
+                        firma = %s, estado = %s 
+                    WHERE id_documento = %s""",
+                    (inputs['fecha'].text(), inputs['establecimiento'].text(),
+                     inputs['tipodocumento'].text(), inputs['nrodocumento'].text(),
+                     inputs['materia'].text(), inputs['destino'].text(),
+                     inputs['firma'].text(), inputs['estado'].text(), id_to_modify)
                 )
-                self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_modify} modificado exitosamente")
-                self.consultar_datos()  # Actualizamos la vista después de modificar
+                self.mostrar_mensaje("Éxito", f"Documento con ID {id_to_modify} modificado exitosamente")
+                self.consultar_datos()
             except Exception as e:
-                self.mostrar_mensaje("Error", f"No se pudo modificar el registro: {str(e)}", QMessageBox.Icon.Critical)
+                self.mostrar_mensaje("Error", f"No se pudo modificar el documento: {str(e)}", QMessageBox.Icon.Critical)
 
     def reordenar_ids(self):
         confirm = QMessageBox.question(self, "Confirmar reordenación", 
@@ -455,7 +457,7 @@ class MainWindow(QMainWindow):
 
     def actualizar_datos_sin_progreso(self):
         try:
-            resultados = DatabaseManager.execute_query("SELECT * FROM mamabichosricos")
+            resultados = DatabaseManager.execute_query("SELECT * FROM documento")
             self.tree_widget.clear()
             for registro in resultados:
                 item = QTreeWidgetItem(self.tree_widget)
