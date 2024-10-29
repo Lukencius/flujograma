@@ -339,9 +339,10 @@ class MainWindow(QMainWindow):
                 )
                 
                 # Obtener el ID del registro recién insertado
-                last_id = DatabaseManager.execute_query(
-                    "SELECT LAST_INSERT_ID() as id"
-                )[0]['id']
+                result = DatabaseManager.execute_query(
+                    "SELECT id_documento FROM documento ORDER BY id_documento DESC LIMIT 1"
+                )
+                last_id = result[0]['id_documento'] if result else 0
                 
                 self.mostrar_mensaje("Éxito", f"Documento agregado exitosamente con ID: {last_id}")
                 self.consultar_datos()
