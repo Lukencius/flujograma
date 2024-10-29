@@ -409,11 +409,42 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_widget)
         main_layout.addWidget(right_widget)
 
-        # Agregar barra de búsqueda en el lado derecho
+        # Agregar la sección de búsqueda mejorada
+        search_widget = QWidget()
+        search_layout = QHBoxLayout(search_widget)
+        
+        # Combo para seleccionar columna
+        self.search_combo = QComboBox()
+        self.search_combo.addItems([
+            "Todos los campos",
+            "ID",
+            "Fecha",
+            "Establecimiento",
+            "Tipo Doc.",
+            "Nro. Doc.",
+            "Materia",
+            "Destino",
+            "Firma",
+            "Estado"
+        ])
+        search_layout.addWidget(self.search_combo)
+        
+        # Campo de búsqueda
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Buscar...")
-        self.search_bar.textChanged.connect(self.filter_tree_widget)
-        right_layout.addWidget(self.search_bar)
+        search_layout.addWidget(self.search_bar)
+        
+        # Botón de búsqueda
+        self.search_button = QPushButton("Buscar")
+        self.search_button.clicked.connect(self.apply_filter)
+        search_layout.addWidget(self.search_button)
+        
+        # Botón para limpiar
+        self.clear_button = QPushButton("Limpiar")
+        self.clear_button.clicked.connect(self.clear_filter)
+        search_layout.addWidget(self.clear_button)
+        
+        right_layout.addWidget(search_widget)
 
         # Agregar el QTreeWidget al lado derecho
         self.tree_widget = QTreeWidget()
@@ -923,6 +954,119 @@ class MainWindow(QMainWindow):
             self.show()
         else:
             QApplication.instance().quit()
+
+    def apply_filter(self):
+        """Aplica el filtro de búsqueda y agrupa los resultados"""
+        text = self.search_bar.text().lower()
+        search_column = self.search_combo.currentIndex() - 1
+        
+        self.tree_widget.clear()
+        
+        try:
+            # Modificar la consulta SQL para ordenar siempre por fecha
+            if search_column == -1:  # Todos los campos
+                query = """
+                    SELECT * FROM documento 
+                    WHERE LOWER(fecha) LIKE %s 
+                    OR LOWER(establecimiento) LIKE %s 
+                    OR LOWER(tipodocumento) LIKE %s 
+                    OR LOWER(nrodocumento) LIKE %s 
+                    OR LOWER(materia) LIKE %s 
+                    OR LOWER(destino) LIKE %s 
+                    OR LOWER(firma) LIKE %s 
+                    OR LOWER(estado) LIKE %s
+                    ORDER BY fecha DESC
+                """
+                search_pattern = f"%{text}%"
+                params = (search_pattern,) * 8
+            elif search_column == 1:  # Fecha
+                query = """
+                    SELECT *, YEAR(fecha) as año 
+                    FROM documento 
+                    WHERE LOWER(fecha) LIKE %s
+                    ORDER BY fecha DESC
+                """
+                params = (f"%{text}%",)
+            else:
+                campos = ['id_documento', 'fecha', 'establecimiento', 'tipodocumento', 
+                         'nrodocumento', 'materia', 'destino', 'firma', 'estado']
+                campo = campos[search_column]
+                query = f"""
+                    SELECT * FROM documento 
+                    WHERE LOWER({campo}) LIKE %s
+                    ORDER BY fecha DESC
+                """
+                params = (f"%{text}%",)
+            
+            resultados = DatabaseManager.execute_query(query, params)
+            
+            # Agrupar resultados
+            resultados_agrupados = {}
+            for registro in resultados:
+                if search_column == -1:  # Todos los campos
+                    for campo in ['fecha', 'establecimiento', 'tipodocumento', 
+                                'nrodocumento', 'materia', 'destino', 'firma', 'estado']:
+                        if text in str(registro[campo]).lower():
+                            grupo = f"{campo.upper()}: {str(registro[campo]).upper()}"
+                            break
+                    else:
+                        grupo = "OTROS"
+                elif search_column == 1:  # Fecha
+                    año = registro['año'] if 'año' in registro else registro['fecha'].year
+                    grupo = f"AÑO {año}"
+                else:
+                    grupo = str(registro[campos[search_column]]).upper()
+                
+                if grupo not in resultados_agrupados:
+                    resultados_agrupados[grupo] = []
+                resultados_agrupados[grupo].append(registro)
+            
+            # Ordenar los grupos
+            grupos_ordenados = sorted(resultados_agrupados.items())
+            if search_column == 1:
+                grupos_ordenados = sorted(resultados_agrupados.items(), reverse=True)
+            
+            # Crear los grupos en el tree widget
+            for grupo, registros in grupos_ordenados:
+                grupo_item = QTreeWidgetItem(self.tree_widget)
+                grupo_item.setText(0, grupo)
+                grupo_item.setExpanded(True)
+                
+                # Establecer color de fondo para el grupo
+                for columna in range(self.tree_widget.columnCount()):
+                    grupo_item.setBackground(columna, QColor("#2c2c2c"))
+                
+                # Estilo para los grupos
+                font = grupo_item.font(0)
+                font.setBold(True)
+                grupo_item.setFont(0, font)
+                
+                # Agregar registros
+                for registro in registros:
+                    item = QTreeWidgetItem(grupo_item)
+                    item.setText(0, str(registro['id_documento']))
+                    item.setText(1, str(registro['fecha']))
+                    item.setText(2, registro['establecimiento'])
+                    item.setText(3, registro['tipodocumento'])
+                    item.setText(4, registro['nrodocumento'])
+                    item.setText(5, registro['materia'])
+                    item.setText(6, registro['destino'])
+                    item.setText(7, registro['firma'])
+                    item.setText(8, registro['estado'])
+                    
+                    # Color de fondo para los items
+                    for columna in range(self.tree_widget.columnCount()):
+                        item.setBackground(columna, QColor("#1a1a1a"))
+            
+        except Exception as e:
+            self.mostrar_mensaje("ERROR", f"ERROR AL REALIZAR LA BÚSQUEDA: {str(e)}", 
+                               QMessageBox.Icon.Critical)
+
+    def clear_filter(self):
+        """Limpia el filtro y muestra todos los registros sin agrupar"""
+        self.search_bar.clear()
+        self.search_combo.setCurrentIndex(0)
+        self.consultar_datos()
 
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
