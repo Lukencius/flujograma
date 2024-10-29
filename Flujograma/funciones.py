@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
-                             QTableWidget, QTableWidgetItem)
+                             QTableWidget, QTableWidgetItem, QComboBox)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon, QColor
 import pymysql
@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
             ("Consultar Datos", self.consultar_datos, "search_icon.png"),
             ("Eliminar Datos", self.eliminar_datos, "delete_icon.png"),
             ("Modificar Datos", self.modificar_datos, "edit_icon.png"),
-            # ("Reordenar IDs", self.reordenar_ids, "reorder_icon.png"),
+            ("Administrar", self.show_admin_panel, "admin_icon.png"),
         ]
         
         for button_text, slot, icon_name in buttons_config:
@@ -549,8 +549,12 @@ class MainWindow(QMainWindow):
             should_show = any(text.lower() in item.text(j).lower() for j in range(item.columnCount()))
             item.setHidden(not should_show)
 
+    def show_admin_panel(self):
+        dialog = AdminPanel(self)
+        dialog.exec()
+
 class RegisterDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, admin_mode=False):
         super().__init__(parent)
         self.setWindowTitle("Registro de Usuario")
         self.setFixedWidth(300)
@@ -563,9 +567,19 @@ class RegisterDialog(QDialog):
         self.confirm_password_input = QLineEdit()
         self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
         
+        # Combo box para selección de rol (solo visible para administradores)
+        self.role_combo = QComboBox()
+        self.role_combo.addItems(["usuario", "recepcionista", "admin"])
+        
         layout.addRow("Usuario:", self.username_input)
         layout.addRow("Contraseña:", self.password_input)
         layout.addRow("Confirmar Contraseña:", self.confirm_password_input)
+        
+        # Solo mostrar selección de rol si es modo admin
+        if admin_mode:
+            layout.addRow("Rol:", self.role_combo)
+        else:
+            self.role_combo.setCurrentText("usuario")
         
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | 
@@ -580,6 +594,7 @@ class RegisterDialog(QDialog):
             username = self.username_input.text()
             password = self.password_input.text()
             confirm_password = self.confirm_password_input.text()
+            role = self.role_combo.currentText()
             
             if not all([username, password, confirm_password]):
                 raise ValueError("Todos los campos son obligatorios")
@@ -590,8 +605,8 @@ class RegisterDialog(QDialog):
             if len(password) < 8:
                 raise ValueError("La contraseña debe tener al menos 8 caracteres")
                 
-            DatabaseManager.register_user(username, password)
-            QMessageBox.information(self, "Éxito", "Usuario registrado correctamente")
+            DatabaseManager.register_user(username, password, role)
+            QMessageBox.information(self, "xito", "Usuario registrado correctamente")
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -649,6 +664,88 @@ class LoginDialog(QDialog):
     def get_user_role(self):
         return self.user_role
 
+class AdminPanel(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Panel de Administración")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Tabla de usuarios
+        self.user_table = QTableWidget()
+        self.user_table.setColumnCount(3)
+        self.user_table.setHorizontalHeaderLabels(["Usuario", "Rol Actual", "Nuevo Rol"])
+        self.user_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.user_table)
+        
+        # Botones de acción
+        button_layout = QHBoxLayout()
+        
+        save_button = QPushButton("Guardar Cambios")
+        save_button.clicked.connect(self.save_changes)
+        
+        refresh_button = QPushButton("Actualizar")
+        refresh_button.clicked.connect(self.load_users)
+        
+        button_layout.addWidget(refresh_button)
+        button_layout.addWidget(save_button)
+        layout.addLayout(button_layout)
+        
+        self.load_users()
+
+    def load_users(self):
+        try:
+            users = DatabaseManager.execute_query("""
+                SELECT nombreusuario, rol 
+                FROM usuario 
+                ORDER BY nombreusuario
+            """)
+            
+            self.user_table.setRowCount(len(users))
+            
+            for i, user in enumerate(users):
+                # Usuario
+                self.user_table.setItem(i, 0, QTableWidgetItem(user['nombreusuario']))
+                
+                # Rol actual
+                self.user_table.setItem(i, 1, QTableWidgetItem(user['rol']))
+                
+                # Combo box para nuevo rol
+                role_combo = QComboBox()
+                role_combo.addItems(["usuario", "recepcionista", "admin"])
+                role_combo.setCurrentText(user['rol'])
+                self.user_table.setCellWidget(i, 2, role_combo)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
+
+    def save_changes(self):
+        try:
+            changes_made = False
+            for row in range(self.user_table.rowCount()):
+                username = self.user_table.item(row, 0).text()
+                current_role = self.user_table.item(row, 1).text()
+                new_role = self.user_table.cellWidget(row, 2).currentText()
+                
+                if current_role != new_role:
+                    DatabaseManager.execute_query("""
+                        UPDATE usuario 
+                        SET rol = %s 
+                        WHERE nombreusuario = %s
+                    """, (new_role, username))
+                    changes_made = True
+            
+            if changes_made:
+                QMessageBox.information(self, "Éxito", "Roles actualizados correctamente")
+                self.load_users()
+            else:
+                QMessageBox.information(self, "Info", "No se realizaron cambios")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al guardar cambios: {str(e)}")
+
 def main():
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(resource_path("image.jpeg")))
@@ -659,12 +756,21 @@ def main():
         user_role = login.get_user_role()
         window = MainWindow()
         
-        # Aquí puedes configurar la ventana según el rol del usuario
-        if user_role != "admin":
-            # Deshabilitar ciertas funciones para usuarios no administradores
-            for button in window.findChildren(QToolButton):
-                if button.objectName() in ["Eliminar Datos", "Modificar Datos"]:
-                    button.setEnabled(False)
+        # Configurar visibilidad de botones según el rol del usuario
+        for button in window.findChildren(QToolButton):
+            if user_role == "admin":
+                # El administrador ve todos los botones
+                button.setVisible(True)
+            elif user_role == "recepcionista":
+                # El recepcionista solo ve agregar y consultar datos
+                if button.objectName() in ["Eliminar Datos", "Modificar Datos", "Administrar"]:
+                    button.setVisible(False)
+                else:
+                    button.setVisible(True)
+            else:  # usuario normal
+                # Usuario normal solo ve consultar
+                if button.objectName() not in ["Consultar Datos"]:
+                    button.setVisible(False)
         
         window.show()
         sys.exit(app.exec())
