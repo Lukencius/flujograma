@@ -733,7 +733,7 @@ class MainWindow(QMainWindow):
         
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                DatabaseManager.execute_query("DELETE FROM documento WHERE id = %s", (id_to_delete,))
+                DatabaseManager.execute_query("DELETE FROM documento WHERE id_documento = %s", (id_to_delete,))
                 self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_delete} eliminado exitosamente")
                 self.consultar_datos()  # Actualizamos la vista después de eliminar
             except Exception as e:
