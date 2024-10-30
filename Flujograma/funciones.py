@@ -1555,8 +1555,8 @@ class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
         super().__init__(parent)
         self.setWindowTitle("Registro de Usuario - Corporación Isla de Maipo")
-        self.setFixedWidth(450)
-        self.setFixedHeight(570)
+        self.setFixedWidth(520)
+        self.setFixedHeight(600)
         self.admin_mode = admin_mode
         self.setup_ui()
 
