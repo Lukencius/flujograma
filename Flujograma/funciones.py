@@ -297,10 +297,10 @@ class MainWindow(QMainWindow):
 
         # Botones
         buttons_data = [
-            ("Agregar Datos", self.agregar_datos),
-            ("Consultar Datos", self.consultar_datos),
-            ("Eliminar Datos", self.eliminar_datos),
-            ("Modificar Datos", self.modificar_datos),
+            ("Agregar Nuevo Documento", self.agregar_datos),
+            ("Consultar Documento", self.consultar_datos),
+            ("Eliminar Documento", self.eliminar_datos),
+            ("Modificar Documento", self.modificar_datos),
             ("Administrar", self.show_admin_panel)
         ]
 
@@ -1284,6 +1284,177 @@ class MainWindow(QMainWindow):
         self.search_combo.setCurrentIndex(0)
         self.consultar_datos()
 
+    def show_data_entry(self):
+        """Mostrar el diálogo de ingreso de datos"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Agregar Documento")
+        dialog.setFixedSize(800, 600)
+        
+        # Layout principal
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(30, 30, 30, 30)
+
+        # Panel superior (como en la ventana principal)
+        top_panel = QWidget()
+        top_panel.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS['surface']};
+                border-radius: 10px;
+            }}
+        """)
+        top_layout = QVBoxLayout(top_panel)
+        top_layout.setSpacing(10)
+        top_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Título con ícono
+        header_layout = QHBoxLayout()
+        icon_label = QLabel()
+        icon_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
+        icon_label.setPixmap(icon_pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        header_layout.addWidget(icon_label)
+
+        title_label = QLabel("Agregar Documento")
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 24px;
+                font-weight: bold;
+            }}
+        """)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        top_layout.addLayout(header_layout)
+
+        # Panel principal (como en la ventana principal)
+        main_panel = QWidget()
+        main_panel.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS['surface']};
+                border-radius: 10px;
+            }}
+        """)
+        form_layout = QFormLayout(main_panel)
+        form_layout.setSpacing(15)
+        form_layout.setContentsMargins(20, 20, 20, 20)
+
+        # Estilo común para los campos de entrada
+        input_style = f"""
+            QLineEdit, QComboBox {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 5px;
+                padding: 10px;
+                min-width: 300px;
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border: 2px solid {COLORS['primary']};
+            }}
+        """
+
+        # Campos del formulario
+        fields = {}
+        field_names = ["Número", "Fecha", "Tipo", "Remitente", "Materia", "Destino", "Observaciones"]
+        
+        for field_name in field_names:
+            label = QLabel(f"{field_name}:")
+            label.setStyleSheet(f"""
+                QLabel {{
+                    color: {COLORS['text']};
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+            """)
+            
+            if field_name == "Fecha":
+                widget = QCalendarWidget()
+                widget.setStyleSheet(f"""
+                    QCalendarWidget {{
+                        background-color: {COLORS['background']};
+                        color: {COLORS['text']};
+                    }}
+                    QCalendarWidget QToolButton {{
+                        color: {COLORS['text']};
+                        background-color: {COLORS['surface']};
+                        border-radius: 5px;
+                    }}
+                    QCalendarWidget QToolButton:hover {{
+                        background-color: {COLORS['primary']};
+                    }}
+                """)
+            elif field_name == "Tipo":
+                widget = QComboBox()
+                widget.addItems(["Tipo 1", "Tipo 2", "Tipo 3"])
+                widget.setStyleSheet(input_style)
+            else:
+                widget = QLineEdit()
+                widget.setPlaceholderText(f"Ingrese {field_name.lower()}")
+                widget.setStyleSheet(input_style)
+                if field_name == "Observaciones":
+                    widget.setMinimumHeight(100)
+
+            fields[field_name] = widget
+            form_layout.addRow(label, widget)
+
+        main_layout.addWidget(top_panel)
+        main_layout.addWidget(main_panel)
+
+        # Panel de botones
+        button_panel = QWidget()
+        button_layout = QHBoxLayout(button_panel)
+        button_layout.setSpacing(15)
+        button_layout.addStretch()
+
+        # Botones con el mismo estilo que la aplicación principal
+        cancel_button = QPushButton("Cancelar")
+        cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 2px solid {COLORS['error']};
+                padding: 12px 30px;
+                border-radius: 6px;
+                font-weight: bold;
+                min-width: 120px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['error']};
+            }}
+        """)
+        cancel_button.clicked.connect(dialog.reject)
+
+        save_button = QPushButton("Guardar")
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px 30px;
+                border-radius: 6px;
+                font-weight: bold;
+                min-width: 120px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+        """)
+        
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(save_button)
+        main_layout.addWidget(button_panel)
+
+        # Estilo general del diálogo
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+        
+        dialog.exec()
+
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1748,6 +1919,37 @@ class RegisterDialog(QDialog):
         """)
         self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
         buttons_layout.addWidget(self.toggle_confirm_btn)
+
+        # Crear el botón de agregar datos con el nuevo estilo
+        agregar_button = QToolButton()
+        agregar_button.setText("Agregar Datos")
+        agregar_button.setIcon(QIcon(resource_path("agregar.png")))  # Asegúrate de tener este ícono
+        agregar_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        agregar_button.setStyleSheet("""
+            QToolButton {
+                background-color: """ + COLORS['surface'] + """;
+                color: """ + COLORS['text'] + """;
+                border: none;
+                border-radius: 8px;
+                padding: 15px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 150px;
+                margin: 5px;
+                text-align: left;
+            }
+            QToolButton:hover {
+                background-color: """ + COLORS['primary'] + """;
+            }
+            QToolButton:pressed {
+                background-color: """ + COLORS['primary_dark'] + """;
+            }
+        """)
+        agregar_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        agregar_button.clicked.connect(self.show_data_entry)
+
+        # Agregar el botón al layout de botones
+        self.buttons_layout.addWidget(agregar_button)
 
     def create_label(self, text):
         label = QLabel(text)
