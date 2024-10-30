@@ -1331,21 +1331,20 @@ class LoginDialog(QDialog):
         self.username_input.setMinimumHeight(42)
         self.username_input.setFont(QFont("Segoe UI", 14))
 
-        # Contenedor para el campo de contraseña y el botón de mostrar
+        # Contenedor para el campo de contraseña
         password_container = QWidget()
         password_layout = QHBoxLayout(password_container)
         password_layout.setContentsMargins(0, 0, 0, 0)
         password_layout.setSpacing(5)
 
-        # Campo de contraseña
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Contraseña")
+        self.password_input.setPlaceholderText("Ingrese su contraseña")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setStyleSheet(create_input_style())
         password_layout.addWidget(self.password_input)
 
-        # Botón para mostrar/ocultar contraseña
-        self.toggle_password_btn = QPushButton("👁")  # Usando emoji de ojo
+        # Botón mostrar/ocultar contraseña
+        self.toggle_password_btn = QPushButton("🔒")  # Inicialmente cerrado
         self.toggle_password_btn.setFixedSize(35, 35)
         self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_password_btn.setStyleSheet(f"""
@@ -1547,7 +1546,7 @@ class LoginDialog(QDialog):
     def toggle_password_visibility(self):
         if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_password_btn.setText("👁")
+            self.toggle_password_btn.setText("🔓")
         else:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
             self.toggle_password_btn.setText("🔒")
@@ -1709,6 +1708,46 @@ class RegisterDialog(QDialog):
                 background-color: #2b2b2b;
             }
         """)
+
+        # Botón mostrar/ocultar contraseña (inicialmente cerrado)
+        self.toggle_password_btn = QPushButton("🔒")  # Candado cerrado inicial
+        self.toggle_password_btn.setFixedSize(35, 35)
+        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_password_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 18px;
+                color: {COLORS['text']};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
+        buttons_layout.addWidget(self.toggle_password_btn)
+
+        # Botón mostrar/ocultar confirmación (inicialmente cerrado)
+        self.toggle_confirm_btn = QPushButton("🔒")  # Candado cerrado inicial
+        self.toggle_confirm_btn.setFixedSize(35, 35)
+        self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_confirm_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 18px;
+                color: {COLORS['text']};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
+        buttons_layout.addWidget(self.toggle_confirm_btn)
 
     def create_label(self, text):
         label = QLabel(text)
@@ -2085,19 +2124,19 @@ class RegisterDialog(QDialog):
         """Alternar visibilidad de la contraseña"""
         if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_password_btn.setText("🔒")
+            self.toggle_password_btn.setText("🔓")  # Candado abierto
         else:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_password_btn.setText("👁")
+            self.toggle_password_btn.setText("🔒")  # Candado cerrado
 
     def toggle_confirm_visibility(self):
         """Alternar visibilidad de la confirmación de contraseña"""
         if self.confirm_password_input.echoMode() == QLineEdit.EchoMode.Password:
             self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_confirm_btn.setText("🔒")
+            self.toggle_confirm_btn.setText("🔓")  # Candado abierto
         else:
             self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_confirm_btn.setText("👁")
+            self.toggle_confirm_btn.setText("🔒")  # Candado cerrado
 
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
