@@ -3,14 +3,18 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
                              QHeaderView)
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate
-from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
+from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter
+from PyQt6.QtSvg import QSvgRenderer  # Esta es la importación correcta
+from PyQt6.QtCore import Qt, QByteArray
+from io import BytesIO
 import pymysql
 import sys
 import os
 import time
 import sqlite3
 import hashlib
+from io import BytesIO
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
     "charset": "utf8mb4",
@@ -34,6 +38,36 @@ COLORS = {
     'text': '#ffffff',         # Texto blanco
     'text_secondary': '#8F9BBA' # Texto secundario más claro y visible para los placeholders
 }
+
+# Definir los iconos SVG para el ojo
+EYE_SVG = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+</svg>
+'''
+
+EYE_OFF_SVG = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+    <line x1="1" y1="1" x2="23" y2="23"></line>
+</svg>
+'''
+
+# Función para crear un icono desde SVG
+def create_icon_from_svg(svg_content, color='white'):
+    # Reemplazar el color en el SVG
+    svg_content = svg_content.replace('currentColor', color)
+    
+    # Crear QPixmap
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    # Crear QIcon directamente desde el SVG como imagen
+    icon = QIcon()
+    icon.addPixmap(pixmap)
+    
+    return icon
 
 def resource_path(relative_path):
     """Obtiene la ruta absoluta del recurso, funciona para desarrollo y PyInstaller"""
@@ -221,7 +255,7 @@ class MainWindow(QMainWindow):
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(180, 180, Qt.AspectRatioMode.KeepAspectRatio)
+        scaled_pixmap = logo_pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(logo_label)
@@ -1267,7 +1301,7 @@ class LoginDialog(QDialog):
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
@@ -1297,16 +1331,41 @@ class LoginDialog(QDialog):
         self.username_input.setMinimumHeight(42)
         self.username_input.setFont(QFont("Segoe UI", 14))
 
-        # Contraseña
+        # Contenedor para el campo de contraseña y el botón de mostrar
+        password_container = QWidget()
+        password_layout = QHBoxLayout(password_container)
+        password_layout.setContentsMargins(0, 0, 0, 0)
+        password_layout.setSpacing(5)
+
+        # Campo de contraseña
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Ingrese su contraseña")
+        self.password_input.setPlaceholderText("Contraseña")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setStyleSheet(create_input_style())
-        self.password_input.setMinimumHeight(42)
-        self.password_input.setFont(QFont("Segoe UI", 14))
+        password_layout.addWidget(self.password_input)
+
+        # Botón para mostrar/ocultar contraseña
+        self.toggle_password_btn = QPushButton("👁")  # Usando emoji de ojo
+        self.toggle_password_btn.setFixedSize(35, 35)
+        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_password_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 18px;
+                color: {COLORS['text']};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
+        password_layout.addWidget(self.toggle_password_btn)
 
         form_layout.addRow(self.create_label("Usuario:"), self.username_input)
-        form_layout.addRow(self.create_label("Contraseña:"), self.password_input)
+        form_layout.addRow(self.create_label("Contraseña:"), password_container)
 
         main_layout.addWidget(form_widget)
 
@@ -1485,12 +1544,20 @@ class LoginDialog(QDialog):
     def get_user_role(self):
         return self.user_role
 
+    def toggle_password_visibility(self):
+        if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_password_btn.setText("👁")
+        else:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_password_btn.setText("🔒")
+
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
         super().__init__(parent)
         self.setWindowTitle("Registro de Usuario - Corporación Isla de Maipo")
         self.setFixedWidth(450)
-        self.setFixedHeight(550)
+        self.setFixedHeight(570)
         self.admin_mode = admin_mode
         self.setup_ui()
 
@@ -1502,7 +1569,7 @@ class RegisterDialog(QDialog):
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
@@ -2014,6 +2081,24 @@ class RegisterDialog(QDialog):
             }
         """)
 
+    def toggle_password_visibility(self):
+        """Alternar visibilidad de la contraseña"""
+        if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_password_btn.setText("🔒")
+        else:
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_password_btn.setText("👁")
+
+    def toggle_confirm_visibility(self):
+        """Alternar visibilidad de la confirmación de contraseña"""
+        if self.confirm_password_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_confirm_btn.setText("🔒")
+        else:
+            self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_confirm_btn.setText("👁")
+
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2234,6 +2319,7 @@ class AdminPanel(QDialog):
 
 # Función auxiliar para crear el estilo de input (para reutilizar en ambas clases)
 def create_input_style():
+    """Crea el estilo común para los campos de entrada"""
     return f"""
         QLineEdit {{
             padding: 10px 12px;
@@ -2249,10 +2335,43 @@ def create_input_style():
         }}
         QLineEdit::placeholder {{
             color: {COLORS['text_secondary']};
-            font-size: 15px;
-            opacity: 0.95;
-            font-weight: 450;
-            letter-spacing: 0.4px;
+            font-size: 13px;
+            opacity: 0.7;
+        }}
+    """
+
+def create_button_style():
+    """Crea el estilo común para los botones"""
+    return f"""
+        QPushButton {{
+            background-color: {COLORS['primary']};
+            color: {COLORS['text']};
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            min-width: 100px;
+        }}
+        QPushButton:hover {{
+            background-color: {COLORS['primary_dark']};
+        }}
+        QPushButton:pressed {{
+            background-color: {COLORS['primary']};
+        }}
+        QPushButton:disabled {{
+            background-color: {COLORS['surface']};
+            color: {COLORS['text_secondary']};
+        }}
+    """
+
+def create_label_style():
+    """Crea el estilo común para las etiquetas"""
+    return f"""
+        QLabel {{
+            color: {COLORS['text']};
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 5px;
         }}
     """
 
