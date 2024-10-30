@@ -236,6 +236,33 @@ class MainWindow(QMainWindow):
         self.username = username
         self.user_role = user_role
         self.init_ui()
+        self.setup_button_visibility()  # Añadir esta línea
+
+    def setup_button_visibility(self):
+        """Configura la visibilidad de los botones según el rol del usuario"""
+        # Obtener todos los botones
+        buttons = self.findChildren(QPushButton)
+        
+        # Mapeo de roles y sus permisos
+        role_permissions = {
+            "admin": ["Agregar Nuevo Documento", "Consultar Documento", 
+                     "Eliminar Documento", "Modificar Documento", "Administrar"],
+            "recepcionista": ["Agregar Nuevo Documento", "Consultar Documento"],
+            "usuario": ["Consultar Documento"]
+        }
+        
+        # Obtener los permisos para el rol actual
+        allowed_buttons = role_permissions.get(self.user_role.lower(), [])
+        
+        # Añadir "Cerrar Sesión" a los botones permitidos para todos los roles
+        allowed_buttons.append("Cerrar Sesión")
+        
+        # Configurar visibilidad de botones
+        for button in buttons:
+            if button.text() in allowed_buttons:
+                button.setVisible(True)
+            else:
+                button.setVisible(False)
 
     def init_ui(self):
         self.setWindowTitle("Interfaz de Corporación Isla de Maipo")
@@ -309,6 +336,7 @@ class MainWindow(QMainWindow):
 
         for text, slot in buttons_data:
             btn = QPushButton(text)
+            btn.setObjectName(text)  # Añadir esta línea para identificar el botón
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {COLORS['surface']};
