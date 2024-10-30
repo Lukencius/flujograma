@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
-                             QHeaderView)
+                             QHeaderView, QCheckBox, QFileDialog)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
 from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter
 from PyQt6.QtSvg import QSvgRenderer  # Esta es la importación correcta
@@ -15,6 +15,9 @@ import time
 import sqlite3
 import hashlib
 from io import BytesIO
+import json
+import os.path
+
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
     "charset": "utf8mb4",
@@ -236,7 +239,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("Interfaz de Corporación Isla de Maipo")
-        self.setGeometry(100, 100, 1200, 700)
+        self.setGeometry(0, 0, 1920, 1080)
         self.setWindowIcon(QIcon(resource_path("isla_de_maipo.png")))
         
         # Widget central
@@ -544,6 +547,27 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Agregar Documento")
         layout = QFormLayout(dialog)
+        
+        # Añadir botón para seleccionar PDF
+        pdf_button = QPushButton("Seleccionar PDF")
+        self.pdf_path = None  # Variable para almacenar la ruta del PDF
+        
+        def seleccionar_pdf():
+            file_name, _ = QFileDialog.getOpenFileName(
+                dialog,
+                "Seleccionar PDF",
+                "",
+                "PDF Files (*.pdf)"
+            )
+            if file_name:
+                self.pdf_path = file_name
+                pdf_button.setText("PDF seleccionado ✓")
+        
+        pdf_button.clicked.connect(seleccionar_pdf)
+        
+        # Añadir el botón después del calendario
+        layout.addRow("Archivo PDF:", pdf_button)
+
         # Crear el calendario para la fecha
         fecha_input = QCalendarWidget()
         fecha_input.setGridVisible(True)
@@ -640,23 +664,30 @@ class MainWindow(QMainWindow):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
+                # Leer el archivo PDF si fue seleccionado
+                pdf_data = None
+                if self.pdf_path:
+                    with open(self.pdf_path, 'rb') as file:
+                        pdf_data = file.read()
+                
                 # Obtener la fecha seleccionada en formato yyyy-mm-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
                 DatabaseManager.execute_query(
                     """INSERT INTO documento(
                         fecha, establecimiento, tipodocumento, 
-                        nrodocumento, materia, destino, firma, estado
-                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (fecha_seleccionada,
+                        nrodocumento, materia, destino, firma, estado,
+                        archivo_pdf
+                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (fecha_seleccionada),
                      inputs['establecimiento'].text(),
                      inputs['tipodocumento'].text(),
                      inputs['nrodocumento'].text(),
                      inputs['materia'].text(),
                      inputs['destino'].text(),
                      inputs['firma'].text(),
-                     inputs['estado'].text())
-                )
+                     inputs['estado'].text(),
+                     pdf_data)
                 
                 # Obtener el ID del registro recién insertado
                 result = DatabaseManager.execute_query(
@@ -687,9 +718,8 @@ class MainWindow(QMainWindow):
                  data['materia'],
                  data['destino'],
                  data['firma'],
-                 data['estado'])
-            )
-            
+                 data['estado']
+                ))
             for entry in self.entries.values():
                 entry.clear()
             
@@ -701,39 +731,69 @@ class MainWindow(QMainWindow):
 
     def consultar_datos(self):
         try:
-            # Configurar las columnas del TreeWidget
-            self.tree_widget.setColumnCount(9)
+            # Modificar el número de columnas y headers
+            self.tree_widget.setColumnCount(10)  # Aumentamos a 10 columnas
             self.tree_widget.setHeaderLabels([
                 "ID", "Fecha", "Establecimiento", "Tipo Doc",
-                "Nro Doc", "Materia", "Destino", "Firma", "Estado"
+                "Nro Doc", "Materia", "Destino", "Firma", "Estado", "PDF"
             ])
 
-            # Obtener los datos
+            # Obtener los datos incluyendo archivo_pdf
             resultados = DatabaseManager.execute_query(
-                "SELECT * FROM documento ORDER BY id_documento"
+                "SELECT *, archivo_pdf IS NOT NULL as tiene_pdf FROM documento ORDER BY id_documento"
             )
 
-            # Limpiar el TreeWidget
             self.tree_widget.clear()
 
-            # Agregar los datos al TreeWidget
             for registro in resultados:
                 item = QTreeWidgetItem(self.tree_widget)
-                item.setText(0, str(registro['id_documento']))
-                item.setText(1, str(registro['fecha']))
-                item.setText(2, str(registro['establecimiento']))
-                item.setText(3, str(registro['tipodocumento']))
-                item.setText(4, str(registro['nrodocumento']))
-                item.setText(5, str(registro['materia']))
-                item.setText(6, str(registro['destino']))
-                item.setText(7, str(registro['firma']))
-                item.setText(8, str(registro['estado']))
+                # Añadir los datos existentes
+                for i, campo in enumerate(['id_documento', 'fecha', 'establecimiento', 
+                                        'tipodocumento', 'nrodocumento', 'materia', 
+                                        'destino', 'firma', 'estado']):
+                    item.setText(i, str(registro[campo]))
+
+                # Crear widget contenedor para el botón de PDF
+                container = QWidget()
+                layout = QHBoxLayout(container)
+                layout.setContentsMargins(4, 4, 4, 4)
+                
+                # Crear botón de descarga
+                download_btn = QPushButton("📥")
+                download_btn.setToolTip("Descargar PDF")
+                download_btn.setEnabled(registro['tiene_pdf'])
+                download_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {COLORS['primary'] if registro['tiene_pdf'] else COLORS['surface']};
+                        color: white;
+                        border: none;
+                        padding: 5px;
+                        border-radius: 3px;
+                        min-width: 30px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {COLORS['primary_dark'] if registro['tiene_pdf'] else COLORS['surface']};
+                    }}
+                    QPushButton:disabled {{
+                        background-color: {COLORS['surface']};
+                        color: {COLORS['text_secondary']};
+                    }}
+                """)
+
+                # Conectar el botón a la función de descarga
+                if registro['tiene_pdf']:
+                    download_btn.clicked.connect(
+                        lambda checked, id=registro['id_documento']: self.descargar_pdf(id)
+                    )
+
+                layout.addWidget(download_btn)
+                layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tree_widget.setItemWidget(item, 9, container)
 
             # Ajustar el ancho de las columnas
-            for i in range(9):
+            for i in range(10):
                 self.tree_widget.resizeColumnToContents(i)
 
-            # Mostrar mensaje de éxito
             QMessageBox.information(
                 self,
                 "Consulta exitosa",
@@ -745,6 +805,47 @@ class MainWindow(QMainWindow):
                 self,
                 "Error",
                 f"Error al consultar datos: {str(e)}"
+            )
+
+    def descargar_pdf(self, id_documento):
+        """Función para descargar el PDF asociado a un documento"""
+        try:
+            # Obtener el PDF de la base de datos
+            result = DatabaseManager.execute_query(
+                "SELECT archivo_pdf FROM documento WHERE id_documento = %s",
+                (id_documento,)
+            )
+            
+            if result and result[0]['archivo_pdf']:
+                # Abrir diálogo para seleccionar ubicación de guardado
+                file_name, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Guardar PDF",
+                    f"documento_{id_documento}.pdf",
+                    "PDF Files (*.pdf)"
+                )
+                
+                if file_name:
+                    # Guardar el PDF en el sistema de archivos
+                    with open(file_name, 'wb') as file:
+                        file.write(result[0]['archivo_pdf'])
+                    
+                    self.mostrar_mensaje(
+                        "Éxito",
+                        f"PDF guardado exitosamente en {file_name}"
+                    )
+            else:
+                self.mostrar_mensaje(
+                    "Error",
+                    "No hay PDF asociado a este documento",
+                    QMessageBox.Icon.Warning
+                )
+                
+        except Exception as e:
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al descargar el PDF: {str(e)}",
+                QMessageBox.Icon.Critical
             )
 
     def mostrar_mensaje(self, titulo, mensaje, icono=QMessageBox.Icon.Information):
@@ -787,6 +888,37 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Modificar Documento")
         layout = QFormLayout(dialog)
+
+        # Añadir botón para seleccionar PDF
+        pdf_button = QPushButton("Seleccionar PDF")
+        self.pdf_path = None  # Variable para almacenar la ruta del PDF
+        
+        def seleccionar_pdf():
+            file_name, _ = QFileDialog.getOpenFileName(
+                dialog,
+                "Seleccionar PDF",
+                "",
+                "PDF Files (*.pdf)"
+            )
+            if file_name:
+                self.pdf_path = file_name
+                pdf_button.setText("PDF seleccionado ✓")
+        
+        pdf_button.clicked.connect(seleccionar_pdf)
+        
+        # Añadir el botón después del calendario
+        layout.addRow("Archivo PDF:", pdf_button)
+
+        # Obtener el PDF actual si existe
+        try:
+            result = DatabaseManager.execute_query(
+                "SELECT archivo_pdf FROM documento WHERE id_documento = %s",
+                (id_to_modify,)
+            )
+            if result and result[0]['archivo_pdf']:
+                pdf_button.setText("PDF existente ✓ (Click para cambiar)")
+        except Exception as e:
+            print(f"Error al obtener PDF actual: {str(e)}")
 
         # Crear el calendario para la fecha
         fecha_input = QCalendarWidget()
@@ -887,17 +1019,37 @@ class MainWindow(QMainWindow):
                 # Obtener la fecha seleccionada en formato yyyy-mm-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
-                DatabaseManager.execute_query(
-                    """UPDATE documento SET 
-                        fecha = %s, establecimiento = %s, tipodocumento = %s,
-                        nrodocumento = %s, materia = %s, destino = %s,
-                        firma = %s, estado = %s 
-                    WHERE id_documento = %s""",
-                    (fecha_seleccionada, inputs['establecimiento'].text(),
-                     inputs['tipodocumento'].text(), inputs['nrodocumento'].text(),
-                     inputs['materia'].text(), inputs['destino'].text(),
-                     inputs['firma'].text(), inputs['estado'].text(), id_to_modify)
-                )
+                # Preparar la consulta SQL base
+                query = """UPDATE documento SET 
+                    fecha = %s, establecimiento = %s, tipodocumento = %s,
+                    nrodocumento = %s, materia = %s, destino = %s,
+                    firma = %s, estado = %s"""
+                
+                params = [
+                    fecha_seleccionada,
+                    inputs['establecimiento'].text(),
+                    inputs['tipodocumento'].text(),
+                    inputs['nrodocumento'].text(),
+                    inputs['materia'].text(),
+                    inputs['destino'].text(),
+                    inputs['firma'].text(),
+                    inputs['estado'].text()
+                ]
+
+                # Si hay un nuevo PDF, añadirlo a la actualización
+                if self.pdf_path:
+                    with open(self.pdf_path, 'rb') as file:
+                        pdf_data = file.read()
+                    query += ", archivo_pdf = %s"
+                    params.append(pdf_data)
+                
+                # Añadir la condición WHERE
+                query += " WHERE id_documento = %s"
+                params.append(id_to_modify)
+
+                # Ejecutar la consulta
+                DatabaseManager.execute_query(query, params)
+                
                 self.mostrar_mensaje("Éxito", f"Documento con ID {id_to_modify} modificado exitosamente")
                 self.consultar_datos()
             except Exception as e:
@@ -1455,14 +1607,54 @@ class MainWindow(QMainWindow):
         
         dialog.exec()
 
+class CredentialManager:
+    CACHE_FILE = 'credentials_cache.json'
+    
+    @staticmethod
+    def save_credentials(username, password, remember=True):
+        """Guarda las credenciales en caché si remember es True"""
+        if remember:
+            data = {
+                'username': username,
+                'password': password  # En producción deberías encriptar esto
+            }
+            with open(CredentialManager.CACHE_FILE, 'w') as f:
+                json.dump(data, f)
+        else:
+            CredentialManager.clear_credentials()
+
+    @staticmethod
+    def load_credentials():
+        """Carga las credenciales desde caché"""
+        try:
+            if os.path.exists(CredentialManager.CACHE_FILE):
+                with open(CredentialManager.CACHE_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error cargando credenciales: {e}")
+        return None
+
+    @staticmethod
+    def clear_credentials():
+        """Elimina las credenciales guardadas"""
+        if os.path.exists(CredentialManager.CACHE_FILE):
+            os.remove(CredentialManager.CACHE_FILE)
+
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Inicio de Sesión - Corporación Isla de Maipo")
-        self.setFixedWidth(450)
-        self.setFixedHeight(500)
+        self.setWindowTitle("Inicio de Sesi��n - Corporación Isla de Maipo")
+        self.setFixedWidth(550)
+        self.setFixedHeight(650)  # Aumentado de 500 a 650
         self.user_role = None
         self.setup_ui()
+        
+        # Cargar credenciales guardadas
+        saved_credentials = CredentialManager.load_credentials()
+        if saved_credentials:
+            self.username_input.setText(saved_credentials['username'])
+            self.password_input.setText(saved_credentials['password'])
+            self.remember_checkbox.setChecked(True)
 
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1472,7 +1664,7 @@ class LoginDialog(QDialog):
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(360, 360, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
@@ -1501,6 +1693,8 @@ class LoginDialog(QDialog):
         self.username_input.setStyleSheet(create_input_style())
         self.username_input.setMinimumHeight(42)
         self.username_input.setFont(QFont("Segoe UI", 14))
+        # Conectar el evento returnPressed
+        self.username_input.returnPressed.connect(self.login)
 
         # Contenedor para el campo de contraseña
         password_container = QWidget()
@@ -1512,6 +1706,10 @@ class LoginDialog(QDialog):
         self.password_input.setPlaceholderText("Ingrese su contraseña")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setStyleSheet(create_input_style())
+        self.password_input.setMinimumHeight(42)
+        self.password_input.setFont(QFont("Segoe UI", 14))
+        # Conectar el evento returnPressed
+        self.password_input.returnPressed.connect(self.login)
         password_layout.addWidget(self.password_input)
 
         # Botón mostrar/ocultar contraseña
@@ -1538,6 +1736,31 @@ class LoginDialog(QDialog):
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
 
         main_layout.addWidget(form_widget)
+
+        # Agregar checkbox "Recuérdame" antes de los botones
+        self.remember_checkbox = QCheckBox("Recordar mis datos")
+        self.remember_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text']};
+                font-size: 13px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 4px;
+                background-color: {COLORS['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {COLORS['primary']};
+                image: url(check.png);
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+        """)
+        main_layout.addWidget(self.remember_checkbox)
 
         # Botones
         buttons_layout = QVBoxLayout()
@@ -1621,6 +1844,14 @@ class LoginDialog(QDialog):
             success, role = DatabaseManager.validate_login(username, password)
             if success:
                 self.user_role = role
+                
+                # Guardar o eliminar credenciales según el checkbox
+                CredentialManager.save_credentials(
+                    username, 
+                    password, 
+                    self.remember_checkbox.isChecked()
+                )
+                
                 self.accept()
             else:
                 self.show_custom_error("Error de Autenticación", 
@@ -1628,6 +1859,68 @@ class LoginDialog(QDialog):
                     "Por favor verifique su usuario y contraseña.")
         except Exception as e:
             self.show_error_message(str(e))
+
+    def save_credentials(self, username, password):
+        """Guardar credenciales de forma segura"""
+        try:
+            with sqlite3.connect('user_preferences.db') as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS saved_credentials
+                    (id INTEGER PRIMARY KEY, username TEXT, password TEXT)
+                ''')
+                
+                # Encriptar la contraseña antes de guardarla
+                salt = os.urandom(32)
+                key = hashlib.pbkdf2_hmac(
+                    'sha256',
+                    password.encode('utf-8'),
+                    salt,
+                    100000
+                )
+                
+                # Guardar credenciales (reemplazar si existen)
+                cursor.execute('DELETE FROM saved_credentials')
+                cursor.execute(
+                    'INSERT INTO saved_credentials (username, password) VALUES (?, ?)',
+                    (username, password)  # Guardamos la contraseña real, no los asteriscos
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"Error al guardar credenciales: {e}")
+
+    def load_saved_credentials(self):
+        """Cargar credenciales guardadas"""
+        try:
+            with sqlite3.connect('user_preferences.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT username, password FROM saved_credentials LIMIT 1')
+                result = cursor.fetchone()
+                
+                if result:
+                    username, stored_password = result
+                    self.username_input.setText(username)
+                    self.password_input.setText(stored_password)  # Usamos la contraseña real
+                    self.remember_checkbox.setChecked(True)
+                    
+                    # Intentar inicio de sesión automático
+                    success, role = DatabaseManager.validate_login(username, stored_password)
+                    if success:
+                        self.user_role = role
+                        self.accept()
+        except Exception as e:
+            print(f"Error al cargar credenciales: {e}")
+
+    def clear_saved_credentials(self):
+        """Eliminar credenciales guardadas"""
+        try:
+            with sqlite3.connect('user_preferences.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM saved_credentials')
+                conn.commit()
+        except Exception as e:
+            print(f"Error al eliminar credenciales: {e}")
 
     def show_custom_error(self, title, message, detail):
         error_dialog = QDialog(self)
