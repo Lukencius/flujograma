@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QHeaderView, QCheckBox, QFileDialog, QAbstractItemView)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
 from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter
-from PyQt6.QtSvg import QSvgRenderer  # Esta es la importación correcta
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt, QByteArray
 from io import BytesIO
 import pymysql
@@ -42,20 +42,6 @@ COLORS = {
     'text_secondary': '#8F9BBA' # Texto secundario más claro y visible para los placeholders
 }
 
-# Definir los iconos SVG para el ojo
-EYE_SVG = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path>
-    <circle cx="12" cy="12" r="3"></circle>
-</svg>
-'''
-
-EYE_OFF_SVG = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-    <line x1="1" y1="1" x2="23" y2="23"></line>
-</svg>
-'''
 
 # Función para crear un icono desde SVG
 def create_icon_from_svg(svg_content, color='white'):
@@ -293,12 +279,29 @@ class ProgressDialog(QDialog):
         self.progress_bar.setValue(value)
 
 class MainWindow(QMainWindow):
-    def __init__(self, username="", user_role=""):
+    def __init__(self, username=None, user_role=None):
         super().__init__()
         self.username = username
         self.user_role = user_role
         self.init_ui()
         self.setup_button_visibility()  # Añadir esta línea
+        self.setup_user_info()  # Añadir esta línea
+        
+    def setup_user_info(self):
+        """Configura la información del usuario en la interfaz"""
+        if hasattr(self, 'user_info_label'):
+            role_text = {
+                'admin': 'Administrador',
+                'recepcionista': 'Recepcionista',
+                'usuario': 'Usuario'
+            }.get(self.user_role, 'Usuario')
+            
+            self.user_info_label.setText(f"""
+                <div style='text-align: right;'>
+                    <b style='color: {COLORS["primary"]};'>{self.username}</b><br>
+                    <span style='color: {COLORS["text_secondary"]};'>{role_text}</span>
+                </div>
+            """)
 
     def setup_button_visibility(self):
         """Configura la visibilidad de los botones según el rol del usuario"""
@@ -2129,6 +2132,7 @@ class RegisterDialog(QDialog):
         self.setup_ui()
 
     def setup_ui(self):
+        # Layout principal con márgenes y espaciado
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(20)
         main_layout.setContentsMargins(40, 30, 40, 30)
@@ -2141,16 +2145,19 @@ class RegisterDialog(QDialog):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
 
-        # Título
+        # Título con estilo mejorado
         title_label = QLabel("Registro de Usuario")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
                 font-size: 24px;
                 font-weight: bold;
                 margin-bottom: 20px;
-            }
+                padding: 10px;
+                background-color: {COLORS['surface']};
+                border-radius: 8px;
+            }}
         """)
         main_layout.addWidget(title_label)
 
@@ -2159,16 +2166,17 @@ class RegisterDialog(QDialog):
         form_layout = QFormLayout(form_widget)
         form_layout.setSpacing(15)
 
-        # Campos de entrada
+        # Campos de entrada con estilos mejorados
         self.username_input = self.create_input("Ingrese un nombre de usuario")
         self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
         self.confirm_password_input = self.create_input("Confirme su contraseña", is_password=True)
         
+        # Agregar campos al formulario con etiquetas estilizadas
         form_layout.addRow(self.create_label("Usuario:"), self.username_input)
         form_layout.addRow(self.create_label("Contraseña:"), self.password_input)
         form_layout.addRow(self.create_label("Confirmar:"), self.confirm_password_input)
 
-        # Combo box para rol (solo en modo admin)
+        # Combo box para rol en modo admin
         if self.admin_mode:
             self.role_combo = QComboBox()
             self.role_combo.addItems(["usuario", "recepcionista", "admin"])
@@ -2181,21 +2189,16 @@ class RegisterDialog(QDialog):
                     color: {COLORS['text']};
                     min-width: 150px;
                 }}
+                QComboBox:hover {{
+                    border-color: {COLORS['primary']};
+                }}
                 QComboBox::drop-down {{
                     border: none;
-                    padding-right: 20px;
-                }}
-                QComboBox::down-arrow {{
-                    image: url(down_arrow.png);
-                    width: 12px;
-                    height: 12px;
                 }}
                 QComboBox QAbstractItemView {{
                     background-color: {COLORS['surface']};
                     color: {COLORS['text']};
                     selection-background-color: {COLORS['primary']};
-                    selection-color: {COLORS['text']};
-                    border: 1px solid {COLORS['primary']};
                 }}
             """)
             form_layout.addRow(self.create_label("Rol:"), self.role_combo)
@@ -2206,11 +2209,11 @@ class RegisterDialog(QDialog):
 
         main_layout.addWidget(form_widget)
 
-        # Botones
+        # Botones con estilos mejorados
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(10)
 
-        # Botón de registro con animaciones y efectos mejorados
+        # Botón de registro
         register_btn = QPushButton("Registrar Usuario")
         register_btn.setStyleSheet(f"""
             QPushButton {{
@@ -2222,25 +2225,18 @@ class RegisterDialog(QDialog):
                 font-size: 14px;
                 font-weight: bold;
                 min-width: 150px;
-                transition: all 0.3s;
-                position: relative;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             }}
             QPushButton:hover {{
                 background-color: {COLORS['primary_dark']};
-                transform: translateY(-2px);
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             }}
             QPushButton:pressed {{
                 background-color: {COLORS['primary']};
-                transform: translateY(1px);
-                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
             }}
         """)
         register_btn.clicked.connect(self.register)
         buttons_layout.addWidget(register_btn)
 
-        # Botón cancelar con animaciones mejoradas
+        # Botón cancelar
         cancel_btn = QPushButton("Cancelar")
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
@@ -2252,110 +2248,53 @@ class RegisterDialog(QDialog):
                 font-size: 14px;
                 font-weight: bold;
                 min-width: 150px;
-                transition: all 0.3s;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['error']};
                 color: {COLORS['text']};
-                transform: translateY(-2px);
-                box-shadow: 0 4px 8px rgba(239, 83, 80, 0.2);
-            }}
-            QPushButton:pressed {{
-                transform: translateY(1px);
-                box-shadow: none;
             }}
         """)
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
 
+        # Contenedor para botones de visibilidad de contraseña
+        visibility_layout = QHBoxLayout()
+        visibility_layout.setSpacing(10)
+
+        # Botón mostrar/ocultar contraseña
+        self.toggle_password_btn = QPushButton("🔒")
+        self.toggle_password_btn.setFixedSize(35, 35)
+        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_password_btn.setStyleSheet(self.create_visibility_button_style())
+        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
+        visibility_layout.addWidget(self.toggle_password_btn)
+
+        # Botón mostrar/ocultar confirmación
+        self.toggle_confirm_btn = QPushButton("🔒")
+        self.toggle_confirm_btn.setFixedSize(35, 35)
+        self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_confirm_btn.setStyleSheet(self.create_visibility_button_style())
+        self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
+        visibility_layout.addWidget(self.toggle_confirm_btn)
+
+        buttons_layout.addLayout(visibility_layout)
         main_layout.addLayout(buttons_layout)
 
         # Estilo general del diálogo
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2b2b2b;
-            }
-        """)
-
-        # Botón mostrar/ocultar contraseña (inicialmente cerrado)
-        self.toggle_password_btn = QPushButton("🔒")  # Candado cerrado inicial
-        self.toggle_password_btn.setFixedSize(35, 35)
-        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_password_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-                font-size: 18px;
-                color: {COLORS['text']};
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
             }}
         """)
-        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
-        buttons_layout.addWidget(self.toggle_password_btn)
-
-        # Botón mostrar/ocultar confirmación (inicialmente cerrado)
-        self.toggle_confirm_btn = QPushButton("🔒")  # Candado cerrado inicial
-        self.toggle_confirm_btn.setFixedSize(35, 35)
-        self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_confirm_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-                font-size: 18px;
-                color: {COLORS['text']};
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-            }}
-        """)
-        self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
-        buttons_layout.addWidget(self.toggle_confirm_btn)
-
-        # Crear el botón de agregar datos con el nuevo estilo
-        agregar_button = QToolButton()
-        agregar_button.setText("Agregar Datos")
-        agregar_button.setIcon(QIcon(resource_path("agregar.png")))  # Asegúrate de tener este ícono
-        agregar_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        agregar_button.setStyleSheet("""
-            QToolButton {
-                background-color: """ + COLORS['surface'] + """;
-                color: """ + COLORS['text'] + """;
-                border: none;
-                border-radius: 8px;
-                padding: 15px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 150px;
-                margin: 5px;
-                text-align: left;
-            }
-            QToolButton:hover {
-                background-color: """ + COLORS['primary'] + """;
-            }
-            QToolButton:pressed {
-                background-color: """ + COLORS['primary_dark'] + """;
-            }
-        """)
-        agregar_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        agregar_button.clicked.connect(self.show_data_entry)
-
-        # Agregar el botón al layout de botones
-        self.buttons_layout.addWidget(agregar_button)
 
     def create_label(self, text):
         label = QLabel(text)
-        label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
+        label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
                 font-size: 14px;
                 font-weight: bold;
-            }
+            }}
         """)
         return label
 
@@ -2364,10 +2303,41 @@ class RegisterDialog(QDialog):
         input_field.setPlaceholderText(placeholder)
         if is_password:
             input_field.setEchoMode(QLineEdit.EchoMode.Password)
-        input_field.setStyleSheet(create_input_style())
+        input_field.setStyleSheet(f"""
+            QLineEdit {{
+                padding: 10px 12px;
+                border: 2px solid {COLORS['surface']};
+                border-radius: 6px;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                font-size: 14px;
+            }}
+            QLineEdit:focus {{
+                border: 2px solid {COLORS['primary']};
+            }}
+            QLineEdit::placeholder {{
+                color: {COLORS['text_secondary']};
+                font-size: 13px;
+                opacity: 0.7;
+            }}
+        """)
         input_field.setMinimumHeight(42)
-        input_field.setFont(QFont("Segoe UI", 14))
         return input_field
+
+    def create_visibility_button_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 18px;
+                color: {COLORS['text']};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """
 
     def register(self):
         try:
