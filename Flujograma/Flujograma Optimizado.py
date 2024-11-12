@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
                              QHeaderView, QCheckBox, QFileDialog, QAbstractItemView)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
-from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter
+from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter, QPalette
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt, QByteArray
 from io import BytesIO
@@ -17,6 +17,8 @@ import hashlib
 from io import BytesIO
 import json
 import os.path
+import openpyxl
+from datetime import datetime
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -29,17 +31,20 @@ DB_CONFIG = {
     "user": "avnadmin",
 }
 
-# Constantes de colores (agregar al inicio del archivo)
+# Constantes de colores basadas en la interfaz actual
 COLORS = {
-    'primary': '#1E88E5',      # Azul principal
-    'primary_dark': '#1565C0', # Azul oscuro para hover
-    'primary_light': '#64B5F6', # Azul claro
-    'background': '#1a1f2c',   # Fondo oscuro azulado
-    'surface': '#2a3142',      # Superficie de componentes
-    'error': '#EF5350',        # Rojo para errores
-    'success': '#4CAF50',      # Verde para éxito
-    'text': '#ffffff',         # Texto blanco
-    'text_secondary': '#8F9BBA' # Texto secundario más claro y visible para los placeholders
+    'background': '#1A1F2B',     # Azul muy oscuro del fondo
+    'surface': '#242B3D',        # Azul oscuro de los paneles
+    'text': '#FFFFFF',           # Blanco para el texto
+    'primary': '#0066B3',        # Azul del logo
+    'primary_dark': '#004C8C',   # Azul oscuro para hover
+    'primary_light': '#3399FF',  # Azul claro para elementos activos
+    'accent': '#FF6B35',         # Naranja del logo
+    'button_bg': '#2A324A',      # Color de fondo de los botones
+    'button_hover': '#343D5C',   # Color hover de los botones
+    'error': '#FF4444',          # Rojo para errores
+    'success': '#4CAF50',        # Verde para éxito
+    'text_secondary': '#8A93A7'  # Gris azulado para texto secundario
 }
 
 
@@ -156,25 +161,6 @@ class DatabaseManager:
         return result[0]['max_id'] if result else 0
 
     @staticmethod
-    def reordenar_ids(progress_callback):
-        try:
-            registros = DatabaseManager.execute_query("SELECT * FROM documento ORDER BY id")
-            total = len(registros)
-            for i, registro in enumerate(registros, start=1):
-                DatabaseManager.execute_query(
-                    "UPDATE documento SET id = %s WHERE id = %s",
-                    (i, registro['id'])
-                )
-                # Simulamos un proceso más largo para ver la barra de progreso
-                time.sleep(0.001)
-                # Emitimos el progreso
-                progress_callback.emit(int((i / total) * 100))
-            return True
-        except Exception as e:
-            print(f"Error al reordenar IDs: {str(e)}")
-            return False
-
-    @staticmethod
     def init_user_table():
         query = """
         CREATE TABLE IF NOT EXISTS usuarios (
@@ -243,6 +229,26 @@ class DatabaseManager:
                 return True, user['rol']
         return False, None
 
+    @staticmethod
+    def get_establecimientos():
+        try:
+            query = "SELECT nombre_establecimiento FROM establecimiento ORDER BY nombre_establecimiento"
+            resultados = DatabaseManager.execute_query(query)
+            return [resultado['nombre_establecimiento'] for resultado in resultados]
+        except Exception as e:
+            print(f"Error al obtener establecimientos: {str(e)}")
+            return []
+
+    @staticmethod
+    def get_departamentos():
+        try:
+            query = "SELECT nombre_departamento FROM departamento ORDER BY nombre_departamento"
+            resultados = DatabaseManager.execute_query(query)
+            return [resultado['nombre_departamento'] for resultado in resultados]
+        except Exception as e:
+            print(f"Error al obtener departamentos: {str(e)}")
+            return []
+
 class ProgressDialog(QDialog):
     def __init__(self, parent=None, title="Progreso", description="Procesando..."):
         super().__init__(parent)
@@ -289,25 +295,26 @@ class MainWindow(QMainWindow):
         
     def setup_user_info(self):
         """Configura la información del usuario en la interfaz"""
-        if hasattr(self, 'user_info_label'):
-            role_text = {
-                'admin': 'Administrador',
-                'recepcionista': 'Recepcionista',
-                'usuario': 'Usuario'
-            }.get(self.user_role, 'Usuario')
-            
-            self.user_info_label.setText(f"""
-                <div style='text-align: right;'>
-                    <b style='color: {COLORS["primary"]};'>{self.username}</b><br>
-                    <span style='color: {COLORS["text_secondary"]};'>{role_text}</span>
-                </div>
-            """)
+        try:
+            # Buscar el QLabel que muestra la información del usuario
+            user_info = self.findChild(QLabel, "user_info")
+            if user_info:
+                # Actualizar el texto con la información del usuario actual
+                user_info.setText(f"Usuario: {self.username}\nRol: {self.user_role}")
+                user_info.setStyleSheet(f"""
+                    QLabel {{
+                        color: white;
+                        background-color: {COLORS['surface']};
+                        padding: 10px;
+                        border-radius: 8px;
+                        font-size: 13px;
+                    }}
+                """)
+        except Exception as e:
+            print(f"Error al configurar información del usuario: {e}")
 
     def setup_button_visibility(self):
         """Configura la visibilidad de los botones según el rol del usuario"""
-        # Obtener todos los botones
-        buttons = self.findChildren(QPushButton)
-        
         # Mapeo de roles y sus permisos
         role_permissions = {
             "admin": ["Agregar Nuevo Documento", "Consultar Documento", 
@@ -323,7 +330,7 @@ class MainWindow(QMainWindow):
         allowed_buttons.append("Cerrar Sesión")
         
         # Configurar visibilidad de botones
-        for button in buttons:
+        for button in self.findChildren(QPushButton):
             if button.text() in allowed_buttons:
                 button.setVisible(True)
             else:
@@ -396,6 +403,7 @@ class MainWindow(QMainWindow):
             ("Consultar Documento", self.consultar_datos),
             ("Eliminar Documento", self.eliminar_datos),
             ("Modificar Documento", self.modificar_datos),
+            ("Generar Reporte", self.generar_reporte),  # Nueva opción
             ("Administrar", self.show_admin_panel)
         ]
 
@@ -423,7 +431,7 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(slot)
             left_layout.addWidget(btn)
 
-        # Información de usuario y botón de cerrar sesión
+        # Información de usuario y botn de cerrar sesión
         left_layout.addStretch()
         
         # Panel de información de usuario
@@ -463,9 +471,67 @@ class MainWindow(QMainWindow):
 
         # Panel derecho (resto del código del panel derecho permanece igual)
         right_panel = QWidget()
+        right_panel.setObjectName("right_panel")
+        right_panel.setStyleSheet(f"""
+            #right_panel {{
+                background-color: {COLORS['background']};
+                padding: 20px;  /* Padding interior */
+                border-radius: 12px;
+            }}
+        """)
+
+        # Layout para el panel derecho
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(20, 20, 20, 20)
-        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(20, 20, 20, 20)  # Márgenes externos
+        right_layout.setSpacing(10)  # Espacio entre widgets
+
+        # Contenedor para la barra de búsqueda
+        search_container = QWidget()
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(10)
+
+        # Barra de búsqueda
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Buscar...")
+        self.search_bar.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px 12px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
+                font-size: 14px;
+            }}
+            QLineEdit:focus {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QLineEdit::placeholder {{
+                color: {COLORS['text_secondary']};
+            }}
+        """)
+        self.search_bar.textChanged.connect(self.filter_data)
+        search_layout.addWidget(self.search_bar)
+
+        # Botón limpiar búsqueda
+        clear_btn = QPushButton("✕")
+        clear_btn.setFixedSize(32, 32)
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 2px solid {COLORS['primary']};
+                border-radius: 16px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        clear_btn.clicked.connect(self.clear_search)
+        search_layout.addWidget(clear_btn)
+
+        right_layout.addWidget(search_container)
 
         # Contenedor para la barra de búsqueda y botones
         search_container = QWidget()
@@ -510,86 +576,6 @@ class MainWindow(QMainWindow):
                 height: 12px;
             }}
         """)
-
-        # Barra de búsqueda
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Buscar...")
-        self.search_bar.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px 12px;
-                border: 2px solid {COLORS['primary']};
-                border-radius: 6px;
-                font-size: 14px;
-                min-width: 300px;
-            }}
-            QLineEdit:focus {{
-                border-color: {COLORS['primary_light']};
-            }}
-            QLineEdit::placeholder {{
-                color: {COLORS['text_secondary']};
-            }}
-        """)
-
-        # Botón de búsqueda
-        search_btn = QPushButton("Buscar")
-        search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        search_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['primary']};
-                color: {COLORS['text']};
-                border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary_dark']};
-                transform: translateY(-2px);
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['primary']};
-                transform: translateY(1px);
-            }}
-        """)
-        search_btn.clicked.connect(self.perform_search)
-
-        # Botón de limpiar
-        clear_btn = QPushButton("Limpiar")
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 2px solid {COLORS['primary']};
-                padding: 8px 15px;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 80px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-                border-color: {COLORS['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['primary_dark']};
-            }}
-        """)
-        clear_btn.clicked.connect(self.clear_search)
-
-        # Agregar widgets al layout de búsqueda
-        search_layout.addWidget(self.search_combo)
-        search_layout.addWidget(self.search_bar, 1)  # El 1 le da prioridad en el espacio
-        search_layout.addWidget(search_btn)
-        search_layout.addWidget(clear_btn)
-
-        # Agregar el contenedor de búsqueda al layout principal
-        right_layout.addWidget(search_container)
-
         # TreeWidget para mostrar datos
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels([
@@ -601,21 +587,114 @@ class MainWindow(QMainWindow):
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
                 border: none;
-                border-radius: 6px;
+                border-radius: 8px;
+                gridline-color: rgba(255, 255, 255, 0.1);
+                outline: none;
             }}
+            
             QTreeWidget::item {{
-                padding: 5px;
+                height: 30px;  /* Altura reducida de las filas */
+                background-color: {COLORS['background']};
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                margin: 1px;  /* Margen reducido entre filas */
+                border-radius: 2px;
+                padding: 0px 5px;  /* Padding horizontal reducido */
+                font-size: 12px;  /* Tamaño de fuente más pequeño */
             }}
+            
             QTreeWidget::item:selected {{
-                background-color: {COLORS['primary']};
+                background-color: {COLORS['button_bg']};
+                color: {COLORS['text']};
             }}
+            
+            QTreeWidget::item:hover {{
+                background-color: {COLORS['button_hover']};
+            }}
+            
             QHeaderView::section {{
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
-                padding: 5px;
+                padding: 5px;  /* Padding reducido en el encabezado */
                 border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+                font-weight: bold;
+                font-size: 12px;  /* Tamaño de fuente del encabezado */
+            }}
+            
+            QScrollBar:vertical {{
+                background-color: {COLORS['surface']};
+                width: 14px;
+                margin: 0px;
+            }}
+            
+            QScrollBar::handle:vertical {{
+                background-color: {COLORS['button_bg']};
+                min-height: 30px;
+                border-radius: 7px;
+                margin: 2px;
+            }}
+            
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            
+            QScrollBar:horizontal {{
+                background-color: {COLORS['surface']};
+                height: 14px;
+                margin: 0px;
+            }}
+            
+            QScrollBar::handle:horizontal {{
+                background-color: {COLORS['button_bg']};
+                min-width: 30px;
+                border-radius: 7px;
+                margin: 2px;
+            }}
+            
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0px;
             }}
         """)
+        # Configuración adicional del TreeWidget
+        self.tree_widget.setAlternatingRowColors(False)  # Desactivar colores alternados
+        self.tree_widget.setIndentation(0)  # Eliminar la indentación
+        self.tree_widget.setRootIsDecorated(False)  # Ocultar los triángulos expandibles
+        self.tree_widget.setUniformRowHeights(True)  # Altura uniforme para las filas
+        self.tree_widget.setVerticalScrollMode(QTreeWidget.ScrollMode.ScrollPerPixel)
+        self.tree_widget.setHorizontalScrollMode(QTreeWidget.ScrollMode.ScrollPerPixel)
+
+        # Configurar el header
+        header = self.tree_widget.header()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+
+        # Configurar las columnas para que coincidan con la imagen
+        self.tree_widget.setHeaderLabels([
+            "ID", "Fecha", "Establecimiento", "Tipo Doc", 
+            "Nro Doc", "Materia", "Destino", "Firma", "Estado", "PDF"
+        ])
+
+        # Ajustar el ancho de las columnas
+        column_widths = {
+            0: 40,   # ID
+            1: 80,   # Fecha
+            2: 120,  # Establecimiento
+            3: 80,   # Tipo Doc
+            4: 70,   # Nro Doc
+            5: 120,  # Materia
+            6: 100,  # Destino
+            7: 60,   # Firma
+            8: 70,   # Estado
+            9: 40    # PDF
+        }
+
+        # Aplicar los anchos de columna
+        for col, width in column_widths.items():
+            self.tree_widget.setColumnWidth(col, width)
+        
         right_layout.addWidget(self.tree_widget)
 
         # Agregar el panel derecho al layout principal
@@ -627,25 +706,241 @@ class MainWindow(QMainWindow):
                 background-color: {COLORS['background']};
             }}
             QWidget {{
-                color: white;
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+            }}
+            QPushButton {{
+                background-color: {COLORS['button_bg']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 15px;
+                border-radius: 8px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['button_hover']};
+            }}
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }}
+            QTreeWidget {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 8px;
+            }}
+            QTreeWidget::item {{
+                padding: 8px;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {COLORS['button_bg']};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: none;
+            }}
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }}
+            QComboBox:hover {{
+                background-color: {COLORS['button_hover']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+            }}
+            #left_panel {{
+                background-color: {COLORS['surface']};
+                border-radius: 12px;
             }}
         """)
-
-        # Conectar la señal del botón de búsqueda
-        search_btn.clicked.connect(self.perform_search)
-        # También permitir búsqueda al presionar Enter en la barra de búsqueda
-        self.search_bar.returnPressed.connect(self.perform_search)
 
     def agregar_datos(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("Agregar Documento")
-        layout = QFormLayout(dialog)
+        dialog.setFixedSize(800, 600)
         
-        # Añadir botón para seleccionar PDF
+        # Layout principal
+        layout = QVBoxLayout(dialog)
+        
+        # Crear el formulario
+        form_layout = QFormLayout()
+        
+        # Agregar el calendario
+        fecha_input = QCalendarWidget()
+        fecha_input.setGridVisible(True)
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)  # Elimina números de semana
+        fecha_input.setFixedSize(300, 200)  # Tamaño más compacto
+        fecha_input.setStyleSheet(f"""
+            QCalendarWidget {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;  /* Color más claro para mejor legibilidad */
+                font-size: 12px;
+            }}
+            QCalendarWidget QToolButton {{
+                color: #E0E0E0;
+                background-color: {COLORS['surface']};
+                border-radius: 4px;
+                font-size: 13px;
+                padding: 3px;
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+            QCalendarWidget QMenu {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            QCalendarWidget QSpinBox {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            /* Estilo para la vista de tabla del calendario */
+            QCalendarWidget QTableView {{
+                background-color: {COLORS['surface']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: white;
+                alternate-background-color: {COLORS['background']};
+                font-size: 12px;
+            }}
+            /* Estilo para las celdas del calendario */
+            QCalendarWidget QTableView::item:hover {{
+                background-color: {COLORS['primary_light']};
+            }}
+            /* Estilo para el día seleccionado */
+            QCalendarWidget QTableView::item:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+            }}
+            /* Estilo para los encabezados de los días */
+            QCalendarWidget QTableView QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: #FFD700;  /* Dorado para los días de la semana */
+                font-weight: bold;
+                font-size: 12px;
+                padding: 2px;
+                border: none;
+            }}
+            /* Estilo para los días del mes actual */
+            QCalendarWidget QTableView::item:enabled {{
+                color: #E0E0E0;
+            }}
+            /* Estilo para los días de otros meses */
+            QCalendarWidget QTableView::item:disabled {{
+                color: #666666;
+            }}
+        """)
+        form_layout.addRow("Fecha:", fecha_input)
+        
+        # Inicializar el diccionario inputs
+        inputs = {}
+        
+        # Obtener la lista de departamentos
+        departamentos = DatabaseManager.get_departamentos()
+        establecimientos = DatabaseManager.get_establecimientos()
+        
+        # Campos de texto y sus configuraciones
+        campos = [
+            ("establecimiento", QComboBox()),
+            ("tipodocumento", QComboBox()),
+            ("nrodocumento", QLineEdit()),
+            ("materia", QLineEdit()),
+            ("destino", QComboBox()),  # Cambiado a QComboBox
+            ("firma", QLineEdit()),
+            ("estado", QLineEdit())
+        ]
+        
+        # Crear los inputs y guardarlos en el diccionario
+        for campo in campos:
+            inputs[campo[0]] = campo[1]
+            form_layout.addRow(f"{campo[0].capitalize()}:", campo[1])
+        
+        # Configurar el ComboBox de establecimientos
+        inputs['establecimiento'].addItems(establecimientos)
+        
+        # Configurar el ComboBox de destino con los mismos departamentos
+        inputs['destino'].addItems(departamentos)
+        
+        # Aplicar el mismo estilo a ambos ComboBox
+        combobox_style = f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+        """
+        
+        inputs['establecimiento'].setStyleSheet(combobox_style)
+        inputs['destino'].setStyleSheet(combobox_style)
+        
+        # Configurar el ComboBox de tipo de documento
+        inputs['tipodocumento'].addItems([
+            "Oficio",
+            "Resolucion",
+            "Ordinario",
+            "Memo",
+            "Decreto",
+            "Factura",
+            "Carta",
+        ])
+        
+        # Agregar botón para seleccionar PDF
         pdf_button = QPushButton("Seleccionar PDF")
-        self.pdf_path = None  # Variable para almacenar la ruta del PDF
+        pdf_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
         
-        def seleccionar_pdf():
+        pdf_label = QLabel("No se ha seleccionado ningún archivo")
+        pdf_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        
+        pdf_layout = QHBoxLayout()
+        pdf_layout.addWidget(pdf_button)
+        pdf_layout.addWidget(pdf_label)
+        
+        form_layout.addRow("PDF:", pdf_layout)
+        
+        # Variable para almacenar el PDF
+        pdf_data = None
+        
+        def select_pdf():
+            nonlocal pdf_data
             file_name, _ = QFileDialog.getOpenFileName(
                 dialog,
                 "Seleccionar PDF",
@@ -653,145 +948,121 @@ class MainWindow(QMainWindow):
                 "PDF Files (*.pdf)"
             )
             if file_name:
-                self.pdf_path = file_name
-                pdf_button.setText("PDF seleccionado ✓")
-        
-        pdf_button.clicked.connect(seleccionar_pdf)
-        
-        # Añadir el botón después del calendario
-        layout.addRow("Archivo PDF:", pdf_button)
-
-        # Crear el calendario para la fecha
-        fecha_input = QCalendarWidget()
-        fecha_input.setGridVisible(True)
-        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-        
-        # Establecer la fecha actual como predeterminada
-        fecha_input.setSelectedDate(QDate.currentDate())
-        
-        # Hacer el calendario más compacto
-        fecha_input.setFixedSize(300, 200)
-        
-        # Estilo oscuro para el calendario
-        fecha_input.setStyleSheet("""
-            QCalendarWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QCalendarWidget QTableView {
-                background-color: #363636;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-                alternate-background-color: #404040;
-            }
-            QCalendarWidget QTableView:enabled {
-                color: #ffffff;
-            }
-            QCalendarWidget QTableView:disabled {
-                color: #808080;
-            }
-            QCalendarWidget QWidget#qt_calendar_navigationbar {
-                background-color: #2b2b2b;
-            }
-            QCalendarWidget QToolButton {
-                color: #ffffff;
-                background-color: #363636;
-                border: 1px solid #555555;
-                border-radius: 3px;
-                padding: 3px;
-                margin: 3px;
-            }
-            QCalendarWidget QToolButton:hover {
-                background-color: #4a4a4a;
-            }
-            QCalendarWidget QSpinBox {
-                color: #ffffff;
-                background-color: #363636;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-            }
-            QCalendarWidget QMenu {
-                color: #ffffff;
-                background-color: #363636;
-            }
-            QCalendarWidget QMenu::item:selected {
-                background-color: #4a4a4a;
-            }
-            /* Estilo para los días de la semana */
-            QCalendarWidget QWidget { 
-                alternate-background-color: #404040;
-            }
-            QCalendarWidget QAbstractItemView:enabled {
-                color: #ffffff;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-            }
-            QCalendarWidget QAbstractItemView:disabled {
-                color: #808080;
-            }
-        """)
-
-        # Crear inputs para los demás campos
-        inputs = {
-            'establecimiento': QLineEdit(),
-            'tipodocumento': QLineEdit(),
-            'nrodocumento': QLineEdit(),
-            'materia': QLineEdit(),
-            'destino': QLineEdit(),
-            'firma': QLineEdit(),
-            'estado': QLineEdit()
-        }
-
-        # Agregar el calendario primero
-        layout.addRow("Fecha:", fecha_input)
-
-        # Agregar los demás campos al formulario
-        for label, input_field in inputs.items():
-            layout.addRow(label.capitalize() + ":", input_field)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        layout.addRow(buttons)
-
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            try:
-                # Leer el archivo PDF si fue seleccionado
-                pdf_data = None
-                if self.pdf_path:
-                    with open(self.pdf_path, 'rb') as file:
+                try:
+                    with open(file_name, 'rb') as file:
                         pdf_data = file.read()
-                
-                # Obtener la fecha seleccionada en formato yyyy-mm-dd
+                    pdf_label.setText(os.path.basename(file_name))
+                    pdf_label.setStyleSheet(f"color: {COLORS['success']};")
+                except Exception as e:
+                    pdf_data = None
+                    pdf_label.setText(f"Error al cargar el PDF: {str(e)}")
+                    pdf_label.setStyleSheet(f"color: {COLORS['error']};")
+        
+        pdf_button.clicked.connect(select_pdf)
+        
+        # Botones de acción
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        
+        def guardar():
+            try:
+                # Obtener la fecha seleccionada en formato yyyy-MM-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
-                DatabaseManager.execute_query(
-                    """INSERT INTO documento(
-                        fecha, establecimiento, tipodocumento, 
-                        nrodocumento, materia, destino, firma, estado,
-                        archivo_pdf
-                    ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (fecha_seleccionada),
-                     inputs['establecimiento'].text(),
-                     inputs['tipodocumento'].text(),
-                     inputs['nrodocumento'].text(),
-                     inputs['materia'].text(),
-                     inputs['destino'].text(),
-                     inputs['firma'].text(),
-                     inputs['estado'].text(),
-                     pdf_data)
+                # Construir la consulta SQL base
+                query = """INSERT INTO documento(
+                    fecha, establecimiento, tipodocumento, 
+                    nrodocumento, materia, destino, firma, estado"""
                 
-                # Obtener el ID del registro recién insertado
-                result = DatabaseManager.execute_query(
-                    "SELECT id_documento FROM documento ORDER BY id_documento DESC LIMIT 1"
+                values = [
+                    fecha_seleccionada,
+                    inputs['establecimiento'].currentText(),
+                    inputs['tipodocumento'].currentText(),
+                    inputs['nrodocumento'].text(),
+                    inputs['materia'].text(),
+                    inputs['destino'].currentText(),  # Cambiado a currentText()
+                    inputs['firma'].text(),
+                    inputs['estado'].text()
+                ]
+                
+                # Agregar campo de PDF si hay un archivo seleccionado
+                if pdf_data is not None:
+                    query += ", archivo_pdf"
+                    values.append(pdf_data)
+                
+                # Completar la consulta
+                query += ") VALUES(" + ", ".join(["%s"] * len(values)) + ")"
+                
+                # Ejecutar la consulta SQL
+                DatabaseManager.execute_query(query, values)
+                
+                QMessageBox.information(
+                    dialog,
+                    "Éxito",
+                    "Documento agregado exitosamente"
                 )
-                last_id = result[0]['id_documento'] if result else 0
                 
-                self.mostrar_mensaje("Éxito", f"Documento agregado exitosamente con ID: {last_id}")
-                self.consultar_datos()
+                dialog.accept()
+                self.consultar_datos()  # Actualizar la vista
+                
             except Exception as e:
-                self.mostrar_mensaje("Error", f"No se pudo agregar el documento: {str(e)}", QMessageBox.Icon.Critical)
+                QMessageBox.critical(
+                    dialog,
+                    "Error",
+                    f"No se pudo agregar el documento: {str(e)}"
+                )
+        
+        button_box.accepted.connect(guardar)
+        button_box.rejected.connect(dialog.reject)
+        
+        # Agregar los layouts al diálogo
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        
+        # Aplicar estilos
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+            }}
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+            }}
+        """)
+        
+        # Mostrar el diálogo
+        dialog.exec()
 
     def guardar_datos_seguro(self):
         try:
@@ -1010,6 +1281,7 @@ class MainWindow(QMainWindow):
         msg.setWindowTitle(titulo)
         msg.setText(mensaje)
         msg.setIcon(icono)
+        msg.setStyleSheet("")  # Eliminar cualquier estilo personalizado
         msg.exec()
 
     def eliminar_datos(self):
@@ -1021,17 +1293,28 @@ class MainWindow(QMainWindow):
         item = selected_items[0]
         id_to_delete = item.text(0)  # Asumimos que el ID está en la primera columna
 
-        confirm = QMessageBox.question(self, "Confirmar eliminación", 
-                                       f"¿Está seguro de que desea eliminar el registro con ID {id_to_delete}?",
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        confirm = QMessageBox.question(
+            self, 
+            "Confirmar eliminación", 
+            f"¿Está seguro de que desea eliminar el registro con ID {id_to_delete}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
         
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                DatabaseManager.execute_query("DELETE FROM documento WHERE id = %s", (id_to_delete,))
+                # Corregida la consulta para usar id_documento en lugar de id
+                DatabaseManager.execute_query(
+                    "DELETE FROM documento WHERE id_documento = %s", 
+                    (id_to_delete,)
+                )
                 self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_delete} eliminado exitosamente")
                 self.consultar_datos()  # Actualizamos la vista después de eliminar
             except Exception as e:
-                self.mostrar_mensaje("Error", f"No se pudo eliminar el registro: {str(e)}", QMessageBox.Icon.Critical)
+                self.mostrar_mensaje(
+                    "Error", 
+                    f"No se pudo eliminar el registro: {str(e)}", 
+                    QMessageBox.Icon.Critical
+                )
 
     def modificar_datos(self):
         selected_items = self.tree_widget.selectedItems()
@@ -1044,13 +1327,132 @@ class MainWindow(QMainWindow):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Modificar Documento")
+        dialog.setFixedSize(800, 600)
         layout = QFormLayout(dialog)
 
-        # Añadir botón para seleccionar PDF
-        pdf_button = QPushButton("Seleccionar PDF")
-        self.pdf_path = None  # Variable para almacenar la ruta del PDF
+        # Etiqueta Fecha
+        fecha_label = QLabel("Fecha:")
+        fecha_label.setStyleSheet("color: white;")
+        layout.addRow(fecha_label)
+
+        # Calendario con el mismo estilo
+        fecha_input = QCalendarWidget()
+        fecha_input.setGridVisible(True)
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        fecha_input.setStyleSheet("""
+            QCalendarWidget {
+                background-color: #1a1f2c;
+                color: white;
+            }
+            QCalendarWidget QToolButton {
+                color: white;
+                background-color: #2a3142;
+                border-radius: 4px;
+            }
+            QCalendarWidget QMenu {
+                background-color: #2a3142;
+                color: white;
+            }
+            QCalendarWidget QSpinBox {
+                background-color: #2a3142;
+                color: white;
+            }
+            QCalendarWidget QTableView {
+                background-color: #2a3142;
+                selection-background-color: #1E88E5;
+                selection-color: white;
+            }
+        """)
         
-        def seleccionar_pdf():
+        # Establecer la fecha actual del registro
+        current_date = QDate.fromString(item.text(1), "yyyy-MM-dd")
+        fecha_input.setSelectedDate(current_date)
+        layout.addRow(fecha_input)
+
+        # Campos con el mismo estilo que el formulario original
+        field_style = """
+            QLineEdit, QComboBox {
+                background-color: #1a1f2c;
+                color: white;
+                border: 1px solid #1E88E5;
+                border-radius: 4px;
+                padding: 8px;
+                min-height: 20px;
+            }
+        """
+
+        # Crear los campos
+        fields = {
+            'Establecimiento': ('QComboBox', DatabaseManager.get_establecimientos(), item.text(2)),
+            'Tipodocumento': ('QComboBox', ['Oficio', 'Resolucion', 'Ordinario', 'Memo', 'Decreto', 'Factura', 'Carta'], item.text(3)),
+            'Nrodocumento': ('QLineEdit', None, item.text(4)),
+            'Materia': ('QLineEdit', None, item.text(5)),
+            'Destino': ('QComboBox', DatabaseManager.get_departamentos(), item.text(6)),
+            'Firma': ('QLineEdit', None, item.text(7)),
+            'Estado': ('QLineEdit', None, item.text(8))
+        }
+
+        inputs = {}
+        for label, (field_type, options, current_value) in fields.items():
+            label_widget = QLabel(f"{label}:")
+            label_widget.setStyleSheet("color: white;")
+            
+            if field_type == 'QComboBox':
+                widget = QComboBox()
+                widget.addItems(options)
+                index = widget.findText(current_value)
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+            else:
+                widget = QLineEdit(current_value)
+            
+            widget.setStyleSheet(field_style)
+            layout.addRow(label_widget, widget)
+            inputs[label.lower()] = widget
+
+        # Botón para PDF
+        pdf_button = QPushButton("Seleccionar PDF")
+        pdf_label = QLabel("No se ha seleccionado ningún archivo")
+        pdf_label.setStyleSheet("color: white;")
+        
+        pdf_layout = QHBoxLayout()
+        pdf_layout.addWidget(pdf_button)
+        pdf_layout.addWidget(pdf_label)
+        layout.addRow("PDF:", pdf_layout)
+
+        # Botones OK y Cancel
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.setStyleSheet("""
+            QPushButton {
+                background-color: #1E88E5;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        layout.addRow(button_box)
+
+        # Estilo general del diálogo
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #1a1f2c;
+            }
+        """)
+
+        # Resto del código para manejar el guardado...
+
+        # Variable para almacenar el PDF
+        pdf_data = None
+
+        def select_pdf():
+            nonlocal pdf_data
             file_name, _ = QFileDialog.getOpenFileName(
                 dialog,
                 "Seleccionar PDF",
@@ -1058,186 +1460,79 @@ class MainWindow(QMainWindow):
                 "PDF Files (*.pdf)"
             )
             if file_name:
-                self.pdf_path = file_name
-                pdf_button.setText("PDF seleccionado ✓")
-        
-        pdf_button.clicked.connect(seleccionar_pdf)
-        
-        # Añadir el botón después del calendario
-        layout.addRow("Archivo PDF:", pdf_button)
+                try:
+                    with open(file_name, 'rb') as file:
+                        pdf_data = file.read()
+                    pdf_label.setText(os.path.basename(file_name))
+                    pdf_label.setStyleSheet("color: #4CAF50;")  # Verde para éxito
+                except Exception as e:
+                    pdf_data = None
+                    pdf_label.setText(f"Error al cargar el PDF: {str(e)}")
+                    pdf_label.setStyleSheet("color: #F44336;")  # Rojo para error
 
-        # Obtener el PDF actual si existe
-        try:
-            result = DatabaseManager.execute_query(
-                "SELECT archivo_pdf FROM documento WHERE id_documento = %s",
-                (id_to_modify,)
-            )
-            if result and result[0]['archivo_pdf']:
-                pdf_button.setText("PDF existente ✓ (Click para cambiar)")
-        except Exception as e:
-            print(f"Error al obtener PDF actual: {str(e)}")
+        pdf_button.clicked.connect(select_pdf)
 
-        # Crear el calendario para la fecha
-        fecha_input = QCalendarWidget()
-        fecha_input.setGridVisible(True)
-        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-        
-        # Establecer la fecha actual del registro
-        current_date = QDate.fromString(item.text(1), "yyyy-MM-dd")
-        fecha_input.setSelectedDate(current_date)
-        
-        # Hacer el calendario más compacto
-        fecha_input.setFixedSize(300, 200)
-        
-        # Estilo oscuro para el calendario
-        fecha_input.setStyleSheet("""
-            QCalendarWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-            QCalendarWidget QTableView {
-                background-color: #363636;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-                alternate-background-color: #404040;
-            }
-            QCalendarWidget QTableView:enabled {
-                color: #ffffff;
-            }
-            QCalendarWidget QTableView:disabled {
-                color: #808080;
-            }
-            QCalendarWidget QWidget#qt_calendar_navigationbar {
-                background-color: #2b2b2b;
-            }
-            QCalendarWidget QToolButton {
-                color: #ffffff;
-                background-color: #363636;
-                border: 1px solid #555555;
-                border-radius: 3px;
-                padding: 3px;
-                margin: 3px;
-            }
-            QCalendarWidget QToolButton:hover {
-                background-color: #4a4a4a;
-            }
-            QCalendarWidget QSpinBox {
-                color: #ffffff;
-                background-color: #363636;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-            }
-            QCalendarWidget QMenu {
-                color: #ffffff;
-                background-color: #363636;
-            }
-            QCalendarWidget QMenu::item:selected {
-                background-color: #4a4a4a;
-            }
-            /* Estilo para los días de la semana */
-            QCalendarWidget QWidget { 
-                alternate-background-color: #404040;
-            }
-            QCalendarWidget QAbstractItemView:enabled {
-                color: #ffffff;
-                selection-background-color: #4a4a4a;
-                selection-color: #ffffff;
-            }
-            QCalendarWidget QAbstractItemView:disabled {
-                color: #808080;
-            }
-        """)
-
-        # Crear inputs con los valores actuales
-        inputs = {
-            'establecimiento': QLineEdit(item.text(2)),
-            'tipodocumento': QLineEdit(item.text(3)),
-            'nrodocumento': QLineEdit(item.text(4)),
-            'materia': QLineEdit(item.text(5)),
-            'destino': QLineEdit(item.text(6)),
-            'firma': QLineEdit(item.text(7)),
-            'estado': QLineEdit(item.text(8))
-        }
-        # Agregar el calendario primero
-        layout.addRow("Fecha:", fecha_input)
-
-        # Agregar los demás campos al formulario
-        for label, input_field in inputs.items():
-            layout.addRow(label.capitalize() + ":", input_field)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        layout.addRow(buttons)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        def guardar_modificacion():
             try:
-                # Obtener la fecha seleccionada en formato yyyy-mm-dd
+                # Obtener la fecha seleccionada en formato yyyy-MM-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
-                # Preparar la consulta SQL base
+                # Construir la consulta SQL base
                 query = """UPDATE documento SET 
-                    fecha = %s, establecimiento = %s, tipodocumento = %s,
-                    nrodocumento = %s, materia = %s, destino = %s,
-                    firma = %s, estado = %s"""
+                    fecha = %s,
+                    establecimiento = %s,
+                    tipodocumento = %s,
+                    nrodocumento = %s,
+                    materia = %s,
+                    destino = %s,
+                    firma = %s,
+                    estado = %s"""
                 
-                params = [
+                values = [
                     fecha_seleccionada,
-                    inputs['establecimiento'].text(),
-                    inputs['tipodocumento'].text(),
+                    inputs['establecimiento'].currentText(),
+                    inputs['tipodocumento'].currentText(),
                     inputs['nrodocumento'].text(),
                     inputs['materia'].text(),
-                    inputs['destino'].text(),
+                    inputs['destino'].currentText(),
                     inputs['firma'].text(),
                     inputs['estado'].text()
                 ]
-
-                # Si hay un nuevo PDF, añadirlo a la actualización
-                if self.pdf_path:
-                    with open(self.pdf_path, 'rb') as file:
-                        pdf_data = file.read()
+                
+                # Agregar campo de PDF si hay un archivo seleccionado
+                if pdf_data is not None:
                     query += ", archivo_pdf = %s"
-                    params.append(pdf_data)
+                    values.append(pdf_data)
                 
-                # Añadir la condición WHERE
+                # Agregar la condición WHERE
                 query += " WHERE id_documento = %s"
-                params.append(id_to_modify)
-
-                # Ejecutar la consulta
-                DatabaseManager.execute_query(query, params)
+                values.append(id_to_modify)
                 
-                self.mostrar_mensaje("Éxito", f"Documento con ID {id_to_modify} modificado exitosamente")
-                self.consultar_datos()
+                # Ejecutar la consulta SQL
+                DatabaseManager.execute_query(query, values)
+                
+                QMessageBox.information(
+                    dialog,
+                    "Éxito",
+                    "Documento modificado exitosamente"
+                )
+                
+                dialog.accept()
+                self.consultar_datos()  # Actualizar la vista
+                
             except Exception as e:
-                self.mostrar_mensaje("Error", f"No se pudo modificar el documento: {str(e)}", QMessageBox.Icon.Critical)
+                QMessageBox.critical(
+                    dialog,
+                    "Error",
+                    f"No se pudo modificar el documento: {str(e)}"
+                )
 
-    def reordenar_ids(self):
-        confirm = QMessageBox.question(self, "Confirmar reordenación", 
-                                       "¿Está seguro de que desea reordenar los IDs? Esta acción no se puede deshacer.",
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if confirm == QMessageBox.StandardButton.Yes:
-            self.progress_dialog = ProgressDialog(self, title="Reordenación de IDs", description="Reordenando IDs...")
-            self.progress_dialog.set_range(0, 100)
-            self.progress_dialog.show()
+        # Conectar los botones
+        button_box.accepted.connect(guardar_modificacion)
+        button_box.rejected.connect(dialog.reject)
 
-            self.worker = WorkerThread(DatabaseManager.reordenar_ids)
-            self.worker.signals.finished.connect(self.on_reordenar_finished)
-            self.worker.signals.progress.connect(self.progress_dialog.set_value)
-            self.worker.start()
+        dialog.exec()
 
-    def on_reordenar_finished(self, success, message):
-        self.progress_dialog.close()
-        self.progress_dialog = None
-        self.mostrar_mensaje("Éxito" if success else "Error", message, 
-                             QMessageBox.Icon.Information if success else QMessageBox.Icon.Critical)
-        
-        # Actualizar los datos sin mostrar la barra de progreso
-        self.actualizar_datos_sin_progreso()
-        
-        self.worker.quit()
-        self.worker.wait()
-        self.worker = None
 
     def actualizar_datos_sin_progreso(self):
         try:
@@ -1275,165 +1570,112 @@ class MainWindow(QMainWindow):
             print(f"Error al cerrar la aplicación: {e}")
             event.accept()
 
-    def perform_search(self):
-        """Realizar búsqueda optimizada con agrupación automática"""
-        search_text = self.search_bar.text().strip().lower()
-        search_field = self.search_combo.currentText()
+    def setup_pdf_button(self, item, tiene_pdf, doc_id):
+        """Configurar el botón de PDF para un item"""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
-        try:
-            # Construir query base
-            query = """
-                SELECT d.*, EXTRACT(YEAR FROM fecha) as año,
-                archivo_pdf IS NOT NULL as tiene_pdf 
-                FROM documento d
-                WHERE 1=1
-            """
-            params = []
-            
-            # Añadir filtros según el campo seleccionado
-            field_mapping = {
-                "Fecha": "fecha",
-                "Establecimiento": "establecimiento",
-                "Tipo Documento": "tipodocumento",
-                "Nro Documento": "nrodocumento",
-                "Materia": "materia",
-                "Destino": "destino",
-                "Firma": "firma",
-                "Estado": "estado"
-            }
-            
-            if search_text:
-                if search_field == "Todos los campos":
-                    conditions = []
-                    for field in field_mapping.values():
-                        conditions.append(f"LOWER(CAST({field} AS TEXT)) LIKE %s")
-                        params.append(f"%{search_text}%")
-                    query += f" AND ({' OR '.join(conditions)})"
-                else:
-                    field = field_mapping.get(search_field)
-                    if field:
-                        query += f" AND LOWER(CAST({field} AS TEXT)) LIKE %s"
-                        params.append(f"%{search_text}%")
-            
-            query += " ORDER BY fecha DESC, id_documento DESC"
-            
-            resultados = DatabaseManager.execute_query(query, params)
-            
-            # Limpiar y preparar TreeWidget
-            self.tree_widget.clear()
-            grupos_año = {}
-            
-            # Agrupar resultados
-            for registro in resultados:
-                año = registro['año'] or 'Sin Año'
-                estado = registro['estado'] or 'Sin Estado'
-                
-                if año not in grupos_año:
-                    grupos_año[año] = {'estados': {}}
-                
-                if estado not in grupos_año[año]['estados']:
-                    grupos_año[año]['estados'][estado] = []
-                
-                grupos_año[año]['estados'][estado].append(registro)
-            
-            # Mostrar resultados agrupados
-            total_registros = 0
-            for año in sorted(grupos_año.keys(), reverse=True):
-                año_item = QTreeWidgetItem(self.tree_widget)
-                año_item.setText(0, f"▼ Año {año}")
-                
-                # Estilo para grupo de año
-                for col in range(self.tree_widget.columnCount()):
-                    año_item.setBackground(col, QColor(COLORS['primary_dark']))
-                    font = año_item.font(col)
-                    font.setBold(True)
-                    año_item.setFont(col, font)
-                
-                estados = grupos_año[año]['estados']
-                for estado, registros in estados.items():
-                    estado_item = QTreeWidgetItem(año_item)
-                    estado_item.setText(0, f"▼ {estado} ({len(registros)})")
-                    estado_item.setExpanded(True)
-                    
-                    # Estilo para subgrupo
-                    for col in range(self.tree_widget.columnCount()):
-                        estado_item.setBackground(col, QColor(COLORS['surface']))
-                        estado_item.setFont(col, año_item.font(col))
-                    
-                    # Agregar registros
-                    for reg in registros:
-                        item = QTreeWidgetItem(estado_item)
-                        campos = ['id_documento', 'fecha', 'establecimiento', 
-                                'tipodocumento', 'nrodocumento', 'materia', 
-                                'destino', 'firma', 'estado']
-                        
-                        for i, campo in enumerate(campos):
-                            item.setText(i, str(reg[campo]))
-                        total_registros += 1
-            
-            # Ajustar columnas y mostrar mensaje
-            for i in range(self.tree_widget.columnCount()):
-                self.tree_widget.resizeColumnToContents(i)
-            
-            mensaje = (f"Se encontraron {total_registros} registros" + 
-                      (f" que coinciden con '{search_text}'" if search_text else ""))
-            
-            QMessageBox.information(self, "Resultados", mensaje)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error en la búsqueda: {str(e)}")
-
-    def clear_search(self):
-        """Limpiar la búsqueda y mostrar todos los registros sin agrupar"""
-        self.search_bar.clear()
-        self.search_combo.setCurrentIndex(0)
+        download_btn = QPushButton("📥")
+        download_btn.setFixedSize(18, 18)
+        download_btn.setToolTip("Descargar PDF")
+        download_btn.setEnabled(tiene_pdf)
         
-        try:
-            # Recargar todos los datos sin agrupar
-            resultados = DatabaseManager.execute_query(
-                "SELECT * FROM documento ORDER BY id_documento"
+        COLOR_PDF = "#FF8C00"
+        COLOR_NO_PDF = "#808080"
+        COLOR_HOVER = "#FF6B00"
+        
+        download_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_PDF if tiene_pdf else COLOR_NO_PDF};
+                color: white;
+                border: none;
+                border-radius: 9px;
+                padding: 0px;
+                font-size: 10px;
+                qproperty-alignment: AlignCenter;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_HOVER if tiene_pdf else COLOR_NO_PDF};
+            }}
+            QPushButton:disabled {{
+                background-color: {COLOR_NO_PDF};
+                color: #CCCCCC;
+            }}
+        """)
+        
+        if tiene_pdf:
+            download_btn.clicked.connect(
+                lambda checked, x=doc_id: self.descargar_pdf(x)
             )
-            
-            self.tree_widget.clear()
-            for registro in resultados:
-                item = QTreeWidgetItem(self.tree_widget)
-                item.setText(0, str(registro['id_documento']))
-                item.setText(1, str(registro['fecha']))
-                item.setText(2, str(registro['establecimiento']))
-                item.setText(3, str(registro['tipodocumento']))
-                item.setText(4, str(registro['nrodocumento']))
-                item.setText(5, str(registro['materia']))
-                item.setText(6, str(registro['destino']))
-                item.setText(7, str(registro['firma']))
-                item.setText(8, str(registro['estado']))
+        
+        layout.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        self.tree_widget.setItemWidget(item, 9, container)
 
-            # Ajustar columnas
-            for i in range(9):
-                self.tree_widget.resizeColumnToContents(i)
-
-            QMessageBox.information(
-                self,
-                "Búsqueda limpiada",
-                f"Se están mostrando todos los registros ({len(resultados)})"
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Error al limpiar la búsqueda: {str(e)}"
-            )
-
-    # Método auxiliar para depuración
-    def print_tree_content(self):
-        """Imprimir el contenido del TreeWidget para depuración"""
-        print("\nContenido del TreeWidget:")
-        for i in range(self.tree_widget.topLevelItemCount()):
-            item = self.tree_widget.topLevelItem(i)
-            row_content = []
-            for j in range(item.columnCount()):
-                row_content.append(item.text(j))
-            print(f"Fila {i}: {row_content}")
+    def agregar_registro_al_tree(self, registro, parent=None):
+        """Método auxiliar para agregar un registro al TreeWidget"""
+        item = QTreeWidgetItem(parent if parent else self.tree_widget)
+        
+        # Establecer valores en las columnas
+        campos = ['id_documento', 'fecha', 'establecimiento', 'tipodocumento', 
+                 'nrodocumento', 'materia', 'destino', 'firma', 'estado']
+        
+        for i, campo in enumerate(campos):
+            valor = registro[campo]
+            if campo == 'fecha':
+                valor = str(valor)
+            item.setText(i, str(valor))
+        
+        # Crear y configurar el botón de PDF
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        download_btn = QPushButton("📥")
+        download_btn.setFixedSize(18, 18)
+        download_btn.setToolTip("Descargar PDF")
+        
+        tiene_pdf = registro.get('tiene_pdf', False)
+        download_btn.setEnabled(tiene_pdf)
+        
+        # Colores y estilos
+        COLOR_PDF = "#FF8C00"
+        COLOR_NO_PDF = "#808080"
+        COLOR_HOVER = "#FF6B00"
+        
+        download_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_PDF if tiene_pdf else COLOR_NO_PDF};
+                color: white;
+                border: none;
+                border-radius: 9px;
+                padding: 0px;
+                font-size: 10px;
+                qproperty-alignment: AlignCenter;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_HOVER if tiene_pdf else COLOR_NO_PDF};
+            }}
+            QPushButton:disabled {{
+                background-color: {COLOR_NO_PDF};
+                color: #CCCCCC;
+            }}
+        """)
+        
+        if tiene_pdf:
+            doc_id = registro['id_documento']
+            download_btn.clicked.connect(
+                lambda checked, x=doc_id: self.descargar_pdf(x))
+        
+        layout.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        # Establecer el widget en la última columna
+        if parent:
+            self.tree_widget.setItemWidget(item, 9, container)
+        else:
+            self.tree_widget.setItemWidget(item, 9, container)
 
     def show_admin_panel(self):
         dialog = AdminPanel(self)
@@ -1445,314 +1687,158 @@ class MainWindow(QMainWindow):
         
         login = LoginDialog()
         if login.exec() == QDialog.DialogCode.Accepted:
+            # Actualizar las credenciales del usuario
             self.username = login.username_input.text()
             self.user_role = login.get_user_role()
             
-            # Actualizar solo la información del usuario
+            # Actualizar la información del usuario
             self.setup_user_info()
             
-            # Actualizar visibilidad de botones según el nuevo rol
-            for button in self.findChildren(QToolButton):
-                if self.user_role == "admin":
-                    # El administrador ve todos los botones
-                    button.setVisible(True)
-                elif self.user_role == "recepcionista":
-                    # El recepcionista solo ve agregar y consultar datos
-                    if button.objectName() in ["Eliminar Datos", "Modificar Datos", "Administrar"]:
-                        button.setVisible(False)
-                    else:
-                        button.setVisible(True)
-                else:  # usuario normal
-                    # Usuario normal solo ve consultar
-                    if button.objectName() not in ["Consultar Datos"]:
-                        button.setVisible(False)  
+            # Actualizar la visibilidad de los botones según el nuevo rol
+            self.setup_button_visibility()  # Llamar al método que configura los botones
+            
             self.show()
         else:
             QApplication.instance().quit()
 
-    def apply_filter(self):
-        """Aplica el filtro de búsqueda y agrupa los resultados"""
-        text = self.search_bar.text().lower()
-        search_column = self.search_combo.currentIndex() - 1
+    def setup_button_visibility(self):
+        """Configura la visibilidad de los botones según el rol del usuario"""
+        # Mapeo de roles y sus permisos
+        role_permissions = {
+            "admin": ["Agregar Nuevo Documento", "Consultar Documento", 
+                     "Eliminar Documento", "Modificar Documento", "Administrar"],
+            "recepcionista": ["Agregar Nuevo Documento", "Consultar Documento"],
+            "usuario": ["Consultar Documento"]
+        }
         
-        self.tree_widget.clear()
+        # Obtener los permisos para el rol actual
+        allowed_buttons = role_permissions.get(self.user_role.lower(), [])
         
-        try:
-            # Modificar la consulta SQL para ordenar siempre por fecha
-            if search_column == -1:  # Todos los campos
-                query = """
-                    SELECT * FROM documento 
-                    WHERE LOWER(fecha) LIKE %s 
-                    OR LOWER(establecimiento) LIKE %s 
-                    OR LOWER(tipodocumento) LIKE %s 
-                    OR LOWER(nrodocumento) LIKE %s 
-                    OR LOWER(materia) LIKE %s 
-                    OR LOWER(destino) LIKE %s 
-                    OR LOWER(firma) LIKE %s 
-                    OR LOWER(estado) LIKE %s
-                    ORDER BY fecha DESC
-                """
-                search_pattern = f"%{text}%"
-                params = (search_pattern,) * 8
-            elif search_column == 1:  # Fecha
-                query = """
-                    SELECT *, YEAR(fecha) as año 
-                    FROM documento 
-                    WHERE LOWER(fecha) LIKE %s
-                    ORDER BY fecha DESC
-                """
-                params = (f"%{text}%",)
+        # Añadir "Cerrar Sesión" a los botones permitidos para todos los roles
+        allowed_buttons.append("Cerrar Sesión")
+        
+        # Configurar visibilidad de botones
+        for button in self.findChildren(QPushButton):
+            if button.text() in allowed_buttons:
+                button.setVisible(True)
             else:
-                campos = ['id_documento', 'fecha', 'establecimiento', 'tipodocumento', 
-                         'nrodocumento', 'materia', 'destino', 'firma', 'estado']
-                campo = campos[search_column]
-                query = f"""
-                    SELECT * FROM documento 
-                    WHERE LOWER({campo}) LIKE %s
-                    ORDER BY fecha DESC
-                """
-                params = (f"%{text}%",)
-            
-            resultados = DatabaseManager.execute_query(query, params)
-            
-            # Agrupar resultados
-            resultados_agrupados = {}
-            for registro in resultados:
-                if search_column == -1:  # Todos los campos
-                    for campo in ['fecha', 'establecimiento', 'tipodocumento', 
-                                'nrodocumento', 'materia', 'destino', 'firma', 'estado']:
-                        if text in str(registro[campo]).lower():
-                            grupo = f"{campo.upper()}: {str(registro[campo]).upper()}"
-                            break
-                    else:
-                        grupo = "OTROS"
-                elif search_column == 1:  # Fecha
-                    año = registro['año'] if 'año' in registro else registro['fecha'].year
-                    grupo = f"AÑO {año}"
-                else:
-                    grupo = str(registro[campos[search_column]]).upper()
+                button.setVisible(False)
+
+    def filter_data(self):
+        """Filtra los datos según el texto de búsqueda"""
+        search_text = self.search_bar.text().lower()
+        search_type = self.search_combo.currentText()
+
+        for i in range(self.tree_widget.topLevelItemCount()):
+            item = self.tree_widget.topLevelItem(i)
+            show_item = False
+
+            if search_type == "Todos los campos":
+                # Buscar en todas las columnas
+                show_item = any(
+                    search_text in item.text(j).lower() 
+                    for j in range(self.tree_widget.columnCount())
+                )
+            else:
+                # Mapear el texto del combo con el índice de la columna
+                column_map = {
+                    "Fecha": 1,
+                    "Establecimiento": 2,
+                    "Tipo Documento": 3,
+                    "Nro Documento": 4,
+                    "Materia": 5,
+                    "Destino": 6,
+                    "Firma": 7,
+                    "Estado": 8
+                }
                 
-                if grupo not in resultados_agrupados:
-                    resultados_agrupados[grupo] = []
-                resultados_agrupados[grupo].append(registro)
+                if search_type in column_map:
+                    column_idx = column_map[search_type]
+                    show_item = search_text in item.text(column_idx).lower()
+
+            item.setHidden(not show_item)
+
+    def clear_search(self):
+        """Limpia la búsqueda y muestra todos los registros"""
+        self.search_bar.clear()
+        for i in range(self.tree_widget.topLevelItemCount()):
+            self.tree_widget.topLevelItem(i).setHidden(False)
+
+    def generar_reporte(self):
+        try:
+            # Obtener la ruta donde guardar el archivo
+            file_name, _ = QFileDialog.getSaveFileName(
+                self,
+                "Guardar Reporte Excel",
+                f"reporte_documentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                "Excel Files (*.xlsx)"
+            )
             
-            # Ordenar los grupos
-            grupos_ordenados = sorted(resultados_agrupados.items())
-            if search_column == 1:
-                grupos_ordenados = sorted(resultados_agrupados.items(), reverse=True)
+            if not file_name:
+                return
+                
+            # Crear un nuevo libro de Excel
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Documentos"
             
-            # Crear los grupos en el tree widget
-            for grupo, registros in grupos_ordenados:
-                grupo_item = QTreeWidgetItem(self.tree_widget)
-                grupo_item.setText(0, grupo)
-                grupo_item.setExpanded(True)
+            # Definir encabezados
+            headers = [
+                "ID", "Fecha", "Establecimiento", "Tipo Doc", 
+                "Nro Doc", "Materia", "Destino", "Firma", "Estado"
+            ]
+            
+            # Estilo para encabezados
+            header_style = openpyxl.styles.NamedStyle(
+                name='header',
+                font=openpyxl.styles.Font(bold=True, color='FFFFFF'),
+                fill=openpyxl.styles.PatternFill(
+                    start_color='1E88E5',
+                    end_color='1E88E5',
+                    fill_type='solid'
+                ),
+                alignment=openpyxl.styles.Alignment(horizontal='center')
+            )
+            
+            # Escribir encabezados
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.style = header_style
+            
+            # Obtener datos del TreeWidget
+            row_num = 2
+            for i in range(self.tree_widget.topLevelItemCount()):
+                item = self.tree_widget.topLevelItem(i)
+                for col in range(9):  # 9 columnas (excluyendo PDF)
+                    ws.cell(row=row_num, column=col + 1, value=item.text(col))
+                row_num += 1
+            
+            # Ajustar ancho de columnas
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
                 
-                # Establecer color de fondo para el grupo
-                for columna in range(self.tree_widget.columnCount()):
-                    grupo_item.setBackground(columna, QColor("#2c2c2c"))
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
                 
-                # Estilo para los grupos
-                font = grupo_item.font(0)
-                font.setBold(True)
-                grupo_item.setFont(0, font)
-                
-                # Agregar registros
-                for registro in registros:
-                    item = QTreeWidgetItem(grupo_item)
-                    item.setText(0, str(registro['id_documento']))
-                    item.setText(1, str(registro['fecha']))
-                    item.setText(2, registro['establecimiento'])
-                    item.setText(3, registro['tipodocumento'])
-                    item.setText(4, registro['nrodocumento'])
-                    item.setText(5, registro['materia'])
-                    item.setText(6, registro['destino'])
-                    item.setText(7, registro['firma'])
-                    item.setText(8, registro['estado'])
-                    
-                    # Color de fondo para los items
-                    for columna in range(self.tree_widget.columnCount()):
-                        item.setBackground(columna, QColor("#1a1a1a"))
+                adjusted_width = (max_length + 2)
+                ws.column_dimensions[column].width = adjusted_width
+            
+            # Guardar el archivo
+            wb.save(file_name)
+            
+            self.mostrar_mensaje(
+                "Éxito",
+                f"Reporte generado exitosamente en:\n{file_name}"
+            )
             
         except Exception as e:
-            self.mostrar_mensaje("ERROR", f"ERROR AL REALIZAR LA BÚSQUEDA: {str(e)}", 
-                               QMessageBox.Icon.Critical)
-
-    def clear_filter(self):
-        """Limpia el filtro y muestra todos los registros sin agrupar"""
-        self.search_bar.clear()
-        self.search_combo.setCurrentIndex(0)
-        self.consultar_datos()
-
-    def show_data_entry(self):
-        """Mostrar el diálogo de ingreso de datos"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Agregar Documento")
-        dialog.setFixedSize(800, 600)
-        
-        # Layout principal
-        main_layout = QVBoxLayout(dialog)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(30, 30, 30, 30)
-
-        # Panel superior (como en la ventana principal)
-        top_panel = QWidget()
-        top_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLORS['surface']};
-                border-radius: 10px;
-            }}
-        """)
-        top_layout = QVBoxLayout(top_panel)
-        top_layout.setSpacing(10)
-        top_layout.setContentsMargins(20, 20, 20, 20)
-
-        # Título con ícono
-        header_layout = QHBoxLayout()
-        icon_label = QLabel()
-        icon_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        icon_label.setPixmap(icon_pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        header_layout.addWidget(icon_label)
-
-        title_label = QLabel("Agregar Documento")
-        title_label.setStyleSheet(f"""
-            QLabel {{
-                color: {COLORS['text']};
-                font-size: 24px;
-                font-weight: bold;
-            }}
-        """)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        top_layout.addLayout(header_layout)
-
-        # Panel principal (como en la ventana principal)
-        main_panel = QWidget()
-        main_panel.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLORS['surface']};
-                border-radius: 10px;
-            }}
-        """)
-        form_layout = QFormLayout(main_panel)
-        form_layout.setSpacing(15)
-        form_layout.setContentsMargins(20, 20, 20, 20)
-
-        # Estilo común para los campos de entrada
-        input_style = f"""
-            QLineEdit, QComboBox {{
-                background-color: {COLORS['background']};
-                color: {COLORS['text']};
-                border: none;
-                border-radius: 5px;
-                padding: 10px;
-                min-width: 300px;
-            }}
-            QLineEdit:focus, QComboBox:focus {{
-                border: 2px solid {COLORS['primary']};
-            }}
-        """
-
-        # Campos del formulario
-        fields = {}
-        field_names = ["Número", "Fecha", "Tipo", "Remitente", "Materia", "Destino", "Observaciones"]
-        
-        for field_name in field_names:
-            label = QLabel(f"{field_name}:")
-            label.setStyleSheet(f"""
-                QLabel {{
-                    color: {COLORS['text']};
-                    font-size: 14px;
-                    font-weight: bold;
-                }}
-            """)
-            
-            if field_name == "Fecha":
-                widget = QCalendarWidget()
-                widget.setStyleSheet(f"""
-                    QCalendarWidget {{
-                        background-color: {COLORS['background']};
-                        color: {COLORS['text']};
-                    }}
-                    QCalendarWidget QToolButton {{
-                        color: {COLORS['text']};
-                        background-color: {COLORS['surface']};
-                        border-radius: 5px;
-                    }}
-                    QCalendarWidget QToolButton:hover {{
-                        background-color: {COLORS['primary']};
-                    }}
-                """)
-            elif field_name == "Tipo":
-                widget = QComboBox()
-                widget.addItems(["Tipo 1", "Tipo 2", "Tipo 3"])
-                widget.setStyleSheet(input_style)
-            else:
-                widget = QLineEdit()
-                widget.setPlaceholderText(f"Ingrese {field_name.lower()}")
-                widget.setStyleSheet(input_style)
-                if field_name == "Observaciones":
-                    widget.setMinimumHeight(100)
-
-            fields[field_name] = widget
-            form_layout.addRow(label, widget)
-
-        main_layout.addWidget(top_panel)
-        main_layout.addWidget(main_panel)
-
-        # Panel de botones
-        button_panel = QWidget()
-        button_layout = QHBoxLayout(button_panel)
-        button_layout.setSpacing(15)
-        button_layout.addStretch()
-
-        # Botones con el mismo estilo que la aplicación principal
-        cancel_button = QPushButton("Cancelar")
-        cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 2px solid {COLORS['error']};
-                padding: 12px 30px;
-                border-radius: 6px;
-                font-weight: bold;
-                min-width: 120px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['error']};
-            }}
-        """)
-        cancel_button.clicked.connect(dialog.reject)
-
-        save_button = QPushButton("Guardar")
-        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['primary']};
-                color: {COLORS['text']};
-                border: none;
-                padding: 12px 30px;
-                border-radius: 6px;
-                font-weight: bold;
-                min-width: 120px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary_dark']};
-            }}
-        """)
-        
-        button_layout.addWidget(cancel_button)
-        button_layout.addWidget(save_button)
-        main_layout.addWidget(button_panel)
-
-        # Estilo general del diálogo
-        dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-        """)
-        
-        dialog.exec()
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al generar el reporte: {str(e)}",
+                QMessageBox.Icon.Critical
+            )
 
 import json
 import os
@@ -1855,7 +1941,6 @@ class LoginDialog(QDialog):
         self.username_input.setStyleSheet(create_input_style())
         self.username_input.setMinimumHeight(42)
         self.username_input.setFont(QFont("Segoe UI", 14))
-        # Conectar el evento returnPressed
         self.username_input.returnPressed.connect(self.login)
 
         # Contenedor para el campo de contraseña
@@ -1863,37 +1948,25 @@ class LoginDialog(QDialog):
         password_layout = QHBoxLayout(password_container)
         password_layout.setContentsMargins(0, 0, 0, 0)
         password_layout.setSpacing(5)
-
+        
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Ingrese su contraseña")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setStyleSheet(create_input_style())
         self.password_input.setMinimumHeight(42)
         self.password_input.setFont(QFont("Segoe UI", 14))
-        # Conectar el evento returnPressed
         self.password_input.returnPressed.connect(self.login)
         password_layout.addWidget(self.password_input)
-
-        # Botón mostrar/ocultar contraseña
-        self.toggle_password_btn = QPushButton("🔒")  # Inicialmente cerrado
+        
+        # Botón de visibilidad para contraseña
+        self.toggle_password_btn = QPushButton("🔒")
         self.toggle_password_btn.setFixedSize(35, 35)
         self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_password_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-                font-size: 18px;
-                color: {COLORS['text']};
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-            }}
-        """)
+        self.toggle_password_btn.setStyleSheet(self.create_visibility_button_style())
         self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
         password_layout.addWidget(self.toggle_password_btn)
 
+        # Agregar los contenedores al formulario
         form_layout.addRow(self.create_label("Usuario:"), self.username_input)
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
 
@@ -2099,10 +2172,10 @@ class LoginDialog(QDialog):
         layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Estilo general del diálogo
-        error_dialog.setStyleSheet(f"""
-            QDialog {{
+        error_dialog.setStyleSheet("""
+            QDialog {
                 background-color: {COLORS['background']};
-            }}
+            }
         """)
 
         error_dialog.exec()
@@ -2121,6 +2194,29 @@ class LoginDialog(QDialog):
         else:
             self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
             self.toggle_password_btn.setText("🔒")
+
+    def toggle_confirm_visibility(self):
+        if self.confirm_password_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_confirm_btn.setText("🔓")
+        else:
+            self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_confirm_btn.setText("🔒")
+
+    def create_visibility_button_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 18px;
+                color: {COLORS['text']};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+        """
 
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
@@ -2168,44 +2264,45 @@ class RegisterDialog(QDialog):
 
         # Campos de entrada con estilos mejorados
         self.username_input = self.create_input("Ingrese un nombre de usuario")
-        self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
-        self.confirm_password_input = self.create_input("Confirme su contraseña", is_password=True)
         
-        # Agregar campos al formulario con etiquetas estilizadas
-        form_layout.addRow(self.create_label("Usuario:"), self.username_input)
-        form_layout.addRow(self.create_label("Contraseña:"), self.password_input)
-        form_layout.addRow(self.create_label("Confirmar:"), self.confirm_password_input)
+        # Contenedor para contraseña
+        password_container = QWidget()
+        password_layout = QHBoxLayout(password_container)
+        password_layout.setContentsMargins(0, 0, 0, 0)
+        password_layout.setSpacing(5)
+        
+        self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
+        password_layout.addWidget(self.password_input)
+        
+        # Botón de visibilidad para contraseña
+        self.toggle_password_btn = QPushButton("🔒")
+        self.toggle_password_btn.setFixedSize(35, 35)
+        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_password_btn.setStyleSheet(self.create_visibility_button_style())
+        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
+        password_layout.addWidget(self.toggle_password_btn)
 
-        # Combo box para rol en modo admin
-        if self.admin_mode:
-            self.role_combo = QComboBox()
-            self.role_combo.addItems(["usuario", "recepcionista", "admin"])
-            self.role_combo.setStyleSheet(f"""
-                QComboBox {{
-                    padding: 8px;
-                    border: 2px solid {COLORS['surface']};
-                    border-radius: 6px;
-                    background-color: {COLORS['surface']};
-                    color: {COLORS['text']};
-                    min-width: 150px;
-                }}
-                QComboBox:hover {{
-                    border-color: {COLORS['primary']};
-                }}
-                QComboBox::drop-down {{
-                    border: none;
-                }}
-                QComboBox QAbstractItemView {{
-                    background-color: {COLORS['surface']};
-                    color: {COLORS['text']};
-                    selection-background-color: {COLORS['primary']};
-                }}
-            """)
-            form_layout.addRow(self.create_label("Rol:"), self.role_combo)
-        else:
-            self.role_combo = QComboBox()
-            self.role_combo.addItem("usuario")
-            self.role_combo.hide()
+        # Contenedor para confirmar contraseña
+        confirm_container = QWidget()
+        confirm_layout = QHBoxLayout(confirm_container)
+        confirm_layout.setContentsMargins(0, 0, 0, 0)
+        confirm_layout.setSpacing(5)
+        
+        self.confirm_password_input = self.create_input("Confirme su contraseña", is_password=True)
+        confirm_layout.addWidget(self.confirm_password_input)
+        
+        # Botón de visibilidad para confirmar contraseña
+        self.toggle_confirm_btn = QPushButton("🔒")
+        self.toggle_confirm_btn.setFixedSize(35, 35)
+        self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_confirm_btn.setStyleSheet(self.create_visibility_button_style())
+        self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
+        confirm_layout.addWidget(self.toggle_confirm_btn)
+
+        # Agregar los campos al formulario
+        form_layout.addRow(self.create_label("Usuario:"), self.username_input)
+        form_layout.addRow(self.create_label("Contraseña:"), password_container)
+        form_layout.addRow(self.create_label("Confirmar:"), confirm_container)
 
         main_layout.addWidget(form_widget)
 
@@ -2257,27 +2354,6 @@ class RegisterDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
 
-        # Contenedor para botones de visibilidad de contraseña
-        visibility_layout = QHBoxLayout()
-        visibility_layout.setSpacing(10)
-
-        # Botón mostrar/ocultar contraseña
-        self.toggle_password_btn = QPushButton("🔒")
-        self.toggle_password_btn.setFixedSize(35, 35)
-        self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_password_btn.setStyleSheet(self.create_visibility_button_style())
-        self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
-        visibility_layout.addWidget(self.toggle_password_btn)
-
-        # Botón mostrar/ocultar confirmación
-        self.toggle_confirm_btn = QPushButton("🔒")
-        self.toggle_confirm_btn.setFixedSize(35, 35)
-        self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_confirm_btn.setStyleSheet(self.create_visibility_button_style())
-        self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
-        visibility_layout.addWidget(self.toggle_confirm_btn)
-
-        buttons_layout.addLayout(visibility_layout)
         main_layout.addLayout(buttons_layout)
 
         # Estilo general del diálogo
@@ -2927,60 +3003,28 @@ class AdminPanel(QDialog):
 
 # Función auxiliar para crear el estilo de input (para reutilizar en ambas clases)
 def create_input_style():
-    """Crea el estilo común para los campos de entrada"""
-    return f"""
-        QLineEdit {{
-            padding: 10px 12px;
-            border: 2px solid {COLORS['surface']};
-            border-radius: 6px;
-            background-color: {COLORS['surface']};
-            color: {COLORS['text']};
-            font-size: 14px;
-        }}
-        QLineEdit:focus {{
-            border: 2px solid {COLORS['primary']};
-            background-color: {COLORS['surface']};
-        }}
-        QLineEdit::placeholder {{
-            color: {COLORS['text_secondary']};
-            font-size: 13px;
-            opacity: 0.7;
-        }}
+    return """
+        QLineEdit {
+            background-color: black;
+            color: white;
+            border: 1px solid white;
+        }
     """
 
 def create_button_style():
-    """Crea el estilo común para los botones"""
-    return f"""
-        QPushButton {{
-            background-color: {COLORS['primary']};
-            color: {COLORS['text']};
-            border: none;
-            padding: 10px;
-            border-radius: 6px;
-            font-weight: bold;
-            min-width: 100px;
-        }}
-        QPushButton:hover {{
-            background-color: {COLORS['primary_dark']};
-        }}
-        QPushButton:pressed {{
-            background-color: {COLORS['primary']};
-        }}
-        QPushButton:disabled {{
-            background-color: {COLORS['surface']};
-            color: {COLORS['text_secondary']};
-        }}
+    return """
+        QPushButton {
+            background-color: black;
+            color: white;
+            border: 1px solid white;
+        }
     """
 
 def create_label_style():
-    """Crea el estilo común para las etiquetas"""
-    return f"""
-        QLabel {{
-            color: {COLORS['text']};
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }}
+    return """
+        QLabel {
+            color: white;
+        }
     """
 
 class PDFManager:
