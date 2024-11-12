@@ -17,8 +17,6 @@ import hashlib
 from io import BytesIO
 import json
 import os.path
-import openpyxl
-from datetime import datetime
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -403,7 +401,6 @@ class MainWindow(QMainWindow):
             ("Consultar Documento", self.consultar_datos),
             ("Eliminar Documento", self.eliminar_datos),
             ("Modificar Documento", self.modificar_datos),
-            ("Generar Reporte", self.generar_reporte),  # Nueva opción
             ("Administrar", self.show_admin_panel)
         ]
 
@@ -436,6 +433,7 @@ class MainWindow(QMainWindow):
         
         # Panel de información de usuario
         user_info = QLabel(f"Usuario: {self.username}\nRol: {self.user_role}")
+        user_info.setObjectName("user_info")  # Importante: establecer el nombre del objeto
         user_info.setStyleSheet(f"""
             QLabel {{
                 color: white;
@@ -1338,119 +1336,167 @@ class MainWindow(QMainWindow):
         # Calendario con el mismo estilo
         fecha_input = QCalendarWidget()
         fecha_input.setGridVisible(True)
-        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-        fecha_input.setStyleSheet("""
-            QCalendarWidget {
-                background-color: #1a1f2c;
-                color: white;
-            }
-            QCalendarWidget QToolButton {
-                color: white;
-                background-color: #2a3142;
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)  # Elimina números de semana
+        fecha_input.setFixedSize(300, 200)  # Tamaño más compacto
+        fecha_input.setStyleSheet(f"""
+            QCalendarWidget {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;  /* Color más claro para mejor legibilidad */
+                font-size: 12px;
+            }}
+            QCalendarWidget QToolButton {{
+                color: #E0E0E0;
+                background-color: {COLORS['surface']};
                 border-radius: 4px;
-            }
-            QCalendarWidget QMenu {
-                background-color: #2a3142;
-                color: white;
-            }
-            QCalendarWidget QSpinBox {
-                background-color: #2a3142;
-                color: white;
-            }
-            QCalendarWidget QTableView {
-                background-color: #2a3142;
-                selection-background-color: #1E88E5;
+                font-size: 13px;
+                padding: 3px;
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+            QCalendarWidget QMenu {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            QCalendarWidget QSpinBox {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            /* Estilo para la vista de tabla del calendario */
+            QCalendarWidget QTableView {{
+                background-color: {COLORS['surface']};
+                selection-background-color: {COLORS['primary']};
                 selection-color: white;
-            }
+                alternate-background-color: {COLORS['background']};
+                font-size: 12px;
+            }}
+            /* Estilo para las celdas del calendario */
+            QCalendarWidget QTableView::item:hover {{
+                background-color: {COLORS['primary_light']};
+            }}
+            /* Estilo para el día seleccionado */
+            QCalendarWidget QTableView::item:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+            }}
+            /* Estilo para los encabezados de los días */
+            QCalendarWidget QTableView QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: #FFD700;  /* Dorado para los días de la semana */
+                font-weight: bold;
+                font-size: 12px;
+                padding: 2px;
+                border: none;
+            }}
+            /* Estilo para los días del mes actual */
+            QCalendarWidget QTableView::item:enabled {{
+                color: #E0E0E0;
+            }}
+            /* Estilo para los días de otros meses */
+            QCalendarWidget QTableView::item:disabled {{
+                color: #666666;
+            }}
+        """)
+        form_layout.addRow("Fecha:", fecha_input)
+        
+        # Inicializar el diccionario inputs
+        inputs = {}
+        
+        # Obtener la lista de departamentos
+        departamentos = DatabaseManager.get_departamentos()
+        establecimientos = DatabaseManager.get_establecimientos()
+        
+        # Campos de texto y sus configuraciones
+        campos = [
+            ("establecimiento", QComboBox()),
+            ("tipodocumento", QComboBox()),
+            ("nrodocumento", QLineEdit()),
+            ("materia", QLineEdit()),
+            ("destino", QComboBox()),  # Cambiado a QComboBox
+            ("firma", QLineEdit()),
+            ("estado", QLineEdit())
+        ]
+        
+        # Crear los inputs y guardarlos en el diccionario
+        for campo in campos:
+            inputs[campo[0]] = campo[1]
+            form_layout.addRow(f"{campo[0].capitalize()}:", campo[1])
+        
+        # Configurar el ComboBox de establecimientos
+        inputs['establecimiento'].addItems(establecimientos)
+        
+        # Configurar el ComboBox de destino con los mismos departamentos
+        inputs['destino'].addItems(departamentos)
+        
+        # Aplicar el mismo estilo a ambos ComboBox
+        combobox_style = f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+        """
+        
+        inputs['establecimiento'].setStyleSheet(combobox_style)
+        inputs['destino'].setStyleSheet(combobox_style)
+        
+        # Configurar el ComboBox de tipo de documento
+        inputs['tipodocumento'].addItems([
+            "Oficio",
+            "Resolucion",
+            "Ordinario",
+            "Memo",
+            "Decreto",
+            "Factura",
+            "Carta",
+        ])
+        
+        # Agregar botón para seleccionar PDF
+        pdf_button = QPushButton("Seleccionar PDF")
+        pdf_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
         """)
         
-        # Establecer la fecha actual del registro
-        current_date = QDate.fromString(item.text(1), "yyyy-MM-dd")
-        fecha_input.setSelectedDate(current_date)
-        layout.addRow(fecha_input)
-
-        # Campos con el mismo estilo que el formulario original
-        field_style = """
-            QLineEdit, QComboBox {
-                background-color: #1a1f2c;
-                color: white;
-                border: 1px solid #1E88E5;
-                border-radius: 4px;
-                padding: 8px;
-                min-height: 20px;
-            }
-        """
-
-        # Crear los campos
-        fields = {
-            'Establecimiento': ('QComboBox', DatabaseManager.get_establecimientos(), item.text(2)),
-            'Tipodocumento': ('QComboBox', ['Oficio', 'Resolucion', 'Ordinario', 'Memo', 'Decreto', 'Factura', 'Carta'], item.text(3)),
-            'Nrodocumento': ('QLineEdit', None, item.text(4)),
-            'Materia': ('QLineEdit', None, item.text(5)),
-            'Destino': ('QComboBox', DatabaseManager.get_departamentos(), item.text(6)),
-            'Firma': ('QLineEdit', None, item.text(7)),
-            'Estado': ('QLineEdit', None, item.text(8))
-        }
-
-        inputs = {}
-        for label, (field_type, options, current_value) in fields.items():
-            label_widget = QLabel(f"{label}:")
-            label_widget.setStyleSheet("color: white;")
-            
-            if field_type == 'QComboBox':
-                widget = QComboBox()
-                widget.addItems(options)
-                index = widget.findText(current_value)
-                if index >= 0:
-                    widget.setCurrentIndex(index)
-            else:
-                widget = QLineEdit(current_value)
-            
-            widget.setStyleSheet(field_style)
-            layout.addRow(label_widget, widget)
-            inputs[label.lower()] = widget
-
-        # Botón para PDF
-        pdf_button = QPushButton("Seleccionar PDF")
         pdf_label = QLabel("No se ha seleccionado ningún archivo")
-        pdf_label.setStyleSheet("color: white;")
+        pdf_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
         
         pdf_layout = QHBoxLayout()
         pdf_layout.addWidget(pdf_button)
         pdf_layout.addWidget(pdf_label)
-        layout.addRow("PDF:", pdf_layout)
-
-        # Botones OK y Cancel
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        button_box.setStyleSheet("""
-            QPushButton {
-                background-color: #1E88E5;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
-        layout.addRow(button_box)
-
-        # Estilo general del diálogo
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: #1a1f2c;
-            }
-        """)
-
-        # Resto del código para manejar el guardado...
-
+        
+        form_layout.addRow("PDF:", pdf_layout)
+        
         # Variable para almacenar el PDF
         pdf_data = None
-
+        
         def select_pdf():
             nonlocal pdf_data
             file_name, _ = QFileDialog.getOpenFileName(
@@ -1464,29 +1510,29 @@ class MainWindow(QMainWindow):
                     with open(file_name, 'rb') as file:
                         pdf_data = file.read()
                     pdf_label.setText(os.path.basename(file_name))
-                    pdf_label.setStyleSheet("color: #4CAF50;")  # Verde para éxito
+                    pdf_label.setStyleSheet(f"color: {COLORS['success']};")
                 except Exception as e:
                     pdf_data = None
                     pdf_label.setText(f"Error al cargar el PDF: {str(e)}")
-                    pdf_label.setStyleSheet("color: #F44336;")  # Rojo para error
-
+                    pdf_label.setStyleSheet(f"color: {COLORS['error']};")
+        
         pdf_button.clicked.connect(select_pdf)
-
-        def guardar_modificacion():
+        
+        # Botones de acción
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        
+        def guardar():
             try:
                 # Obtener la fecha seleccionada en formato yyyy-MM-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
                 # Construir la consulta SQL base
-                query = """UPDATE documento SET 
-                    fecha = %s,
-                    establecimiento = %s,
-                    tipodocumento = %s,
-                    nrodocumento = %s,
-                    materia = %s,
-                    destino = %s,
-                    firma = %s,
-                    estado = %s"""
+                query = """INSERT INTO documento(
+                    fecha, establecimiento, tipodocumento, 
+                    nrodocumento, materia, destino, firma, estado"""
                 
                 values = [
                     fecha_seleccionada,
@@ -1494,19 +1540,18 @@ class MainWindow(QMainWindow):
                     inputs['tipodocumento'].currentText(),
                     inputs['nrodocumento'].text(),
                     inputs['materia'].text(),
-                    inputs['destino'].currentText(),
+                    inputs['destino'].currentText(),  # Cambiado a currentText()
                     inputs['firma'].text(),
                     inputs['estado'].text()
                 ]
                 
                 # Agregar campo de PDF si hay un archivo seleccionado
                 if pdf_data is not None:
-                    query += ", archivo_pdf = %s"
+                    query += ", archivo_pdf"
                     values.append(pdf_data)
                 
-                # Agregar la condición WHERE
-                query += " WHERE id_documento = %s"
-                values.append(id_to_modify)
+                # Completar la consulta
+                query += ") VALUES(" + ", ".join(["%s"] * len(values)) + ")"
                 
                 # Ejecutar la consulta SQL
                 DatabaseManager.execute_query(query, values)
@@ -1514,7 +1559,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     dialog,
                     "Éxito",
-                    "Documento modificado exitosamente"
+                    "Documento agregado exitosamente"
                 )
                 
                 dialog.accept()
@@ -1524,15 +1569,58 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(
                     dialog,
                     "Error",
-                    f"No se pudo modificar el documento: {str(e)}"
+                    f"No se pudo agregar el documento: {str(e)}"
                 )
-
-        # Conectar los botones
-        button_box.accepted.connect(guardar_modificacion)
+        
+        button_box.accepted.connect(guardar)
         button_box.rejected.connect(dialog.reject)
-
+        
+        # Agregar los layouts al diálogo
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        
+        # Aplicar estilos
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+            }}
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+            }}
+        """)
+        
+        # Mostrar el diálogo
         dialog.exec()
-
 
     def actualizar_datos_sin_progreso(self):
         try:
@@ -1763,82 +1851,6 @@ class MainWindow(QMainWindow):
         self.search_bar.clear()
         for i in range(self.tree_widget.topLevelItemCount()):
             self.tree_widget.topLevelItem(i).setHidden(False)
-
-    def generar_reporte(self):
-        try:
-            # Obtener la ruta donde guardar el archivo
-            file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "Guardar Reporte Excel",
-                f"reporte_documentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                "Excel Files (*.xlsx)"
-            )
-            
-            if not file_name:
-                return
-                
-            # Crear un nuevo libro de Excel
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Documentos"
-            
-            # Definir encabezados
-            headers = [
-                "ID", "Fecha", "Establecimiento", "Tipo Doc", 
-                "Nro Doc", "Materia", "Destino", "Firma", "Estado"
-            ]
-            
-            # Estilo para encabezados
-            header_style = openpyxl.styles.NamedStyle(
-                name='header',
-                font=openpyxl.styles.Font(bold=True, color='FFFFFF'),
-                fill=openpyxl.styles.PatternFill(
-                    start_color='1E88E5',
-                    end_color='1E88E5',
-                    fill_type='solid'
-                ),
-                alignment=openpyxl.styles.Alignment(horizontal='center')
-            )
-            
-            # Escribir encabezados
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.style = header_style
-            
-            # Obtener datos del TreeWidget
-            row_num = 2
-            for i in range(self.tree_widget.topLevelItemCount()):
-                item = self.tree_widget.topLevelItem(i)
-                for col in range(9):  # 9 columnas (excluyendo PDF)
-                    ws.cell(row=row_num, column=col + 1, value=item.text(col))
-                row_num += 1
-            
-            # Ajustar ancho de columnas
-            for col in ws.columns:
-                max_length = 0
-                column = col[0].column_letter
-                
-                for cell in col:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
-                
-                adjusted_width = (max_length + 2)
-                ws.column_dimensions[column].width = adjusted_width
-            
-            # Guardar el archivo
-            wb.save(file_name)
-            
-            self.mostrar_mensaje(
-                "Éxito",
-                f"Reporte generado exitosamente en:\n{file_name}"
-            )
-            
-        except Exception as e:
-            self.mostrar_mensaje(
-                "Error",
-                f"Error al generar el reporte: {str(e)}",
-                QMessageBox.Icon.Critical
-            )
 
 import json
 import os
