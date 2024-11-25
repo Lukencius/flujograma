@@ -1316,312 +1316,143 @@ class MainWindow(QMainWindow):
                 )
 
     def modificar_datos(self):
-        selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
-            self.mostrar_mensaje("Error", "Por favor, seleccione un registro para modificar", QMessageBox.Icon.Warning)
-            return
+        try:
+            # Verificar si hay un item seleccionado
+            selected_items = self.tree_widget.selectedItems()
+            if not selected_items:
+                self.mostrar_mensaje(
+                    "Error", 
+                    "Por favor seleccione un documento para modificar",
+                    QMessageBox.Icon.Warning
+                )
+                return
 
-        item = selected_items[0]
-        id_to_modify = item.text(0)
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Modificar Documento")
-        dialog.setFixedSize(800, 600)
-        layout = QFormLayout(dialog)
-
-        # Etiqueta Fecha
-        fecha_label = QLabel("Fecha:")
-        fecha_label.setStyleSheet("color: white;")
-        layout.addRow(fecha_label)
-
-        # Calendario con el mismo estilo
-        fecha_input = QCalendarWidget()
-        fecha_input.setGridVisible(True)
-        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)  # Elimina números de semana
-        fecha_input.setFixedSize(300, 200)  # Tamaño más compacto
-        fecha_input.setStyleSheet(f"""
-            QCalendarWidget {{
-                background-color: {COLORS['surface']};
-                color: #E0E0E0;  /* Color más claro para mejor legibilidad */
-                font-size: 12px;
-            }}
-            QCalendarWidget QToolButton {{
-                color: #E0E0E0;
-                background-color: {COLORS['surface']};
-                border-radius: 4px;
-                font-size: 13px;
-                padding: 3px;
-            }}
-            QCalendarWidget QToolButton:hover {{
-                background-color: {COLORS['primary']};
-            }}
-            QCalendarWidget QMenu {{
-                background-color: {COLORS['surface']};
-                color: #E0E0E0;
-                font-size: 13px;
-            }}
-            QCalendarWidget QSpinBox {{
-                background-color: {COLORS['surface']};
-                color: #E0E0E0;
-                font-size: 13px;
-            }}
-            /* Estilo para la vista de tabla del calendario */
-            QCalendarWidget QTableView {{
-                background-color: {COLORS['surface']};
-                selection-background-color: {COLORS['primary']};
-                selection-color: white;
-                alternate-background-color: {COLORS['background']};
-                font-size: 12px;
-            }}
-            /* Estilo para las celdas del calendario */
-            QCalendarWidget QTableView::item:hover {{
-                background-color: {COLORS['primary_light']};
-            }}
-            /* Estilo para el día seleccionado */
-            QCalendarWidget QTableView::item:selected {{
-                background-color: {COLORS['primary']};
-                color: white;
-            }}
-            /* Estilo para los encabezados de los días */
-            QCalendarWidget QTableView QHeaderView::section {{
-                background-color: {COLORS['surface']};
-                color: #FFD700;  /* Dorado para los días de la semana */
-                font-weight: bold;
-                font-size: 12px;
-                padding: 2px;
-                border: none;
-            }}
-            /* Estilo para los días del mes actual */
-            QCalendarWidget QTableView::item:enabled {{
-                color: #E0E0E0;
-            }}
-            /* Estilo para los días de otros meses */
-            QCalendarWidget QTableView::item:disabled {{
-                color: #666666;
-            }}
-        """)
-        form_layout.addRow("Fecha:", fecha_input)
-        
-        # Inicializar el diccionario inputs
-        inputs = {}
-        
-        # Obtener la lista de departamentos
-        departamentos = DatabaseManager.get_departamentos()
-        establecimientos = DatabaseManager.get_establecimientos()
-        
-        # Campos de texto y sus configuraciones
-        campos = [
-            ("establecimiento", QComboBox()),
-            ("tipodocumento", QComboBox()),
-            ("nrodocumento", QLineEdit()),
-            ("materia", QLineEdit()),
-            ("destino", QComboBox()),  # Cambiado a QComboBox
-            ("firma", QLineEdit()),
-            ("estado", QLineEdit())
-        ]
-        
-        # Crear los inputs y guardarlos en el diccionario
-        for campo in campos:
-            inputs[campo[0]] = campo[1]
-            form_layout.addRow(f"{campo[0].capitalize()}:", campo[1])
-        
-        # Configurar el ComboBox de establecimientos
-        inputs['establecimiento'].addItems(establecimientos)
-        
-        # Configurar el ComboBox de destino con los mismos departamentos
-        inputs['destino'].addItems(departamentos)
-        
-        # Aplicar el mismo estilo a ambos ComboBox
-        combobox_style = f"""
-            QComboBox {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px;
-                border: 1px solid {COLORS['primary']};
-                border-radius: 4px;
-                min-width: 200px;
-            }}
-            QComboBox:hover {{
-                border-color: {COLORS['primary_light']};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                padding-right: 20px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                selection-background-color: {COLORS['primary']};
-                selection-color: {COLORS['text']};
-                border: 1px solid {COLORS['primary']};
-            }}
-        """
-        
-        inputs['establecimiento'].setStyleSheet(combobox_style)
-        inputs['destino'].setStyleSheet(combobox_style)
-        
-        # Configurar el ComboBox de tipo de documento
-        inputs['tipodocumento'].addItems([
-            "Oficio",
-            "Resolucion",
-            "Ordinario",
-            "Memo",
-            "Decreto",
-            "Factura",
-            "Carta",
-        ])
-        
-        # Agregar botón para seleccionar PDF
-        pdf_button = QPushButton("Seleccionar PDF")
-        pdf_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px;
-                border: 1px solid {COLORS['primary']};
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-            }}
-        """)
-        
-        pdf_label = QLabel("No se ha seleccionado ningún archivo")
-        pdf_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
-        
-        pdf_layout = QHBoxLayout()
-        pdf_layout.addWidget(pdf_button)
-        pdf_layout.addWidget(pdf_label)
-        
-        form_layout.addRow("PDF:", pdf_layout)
-        
-        # Variable para almacenar el PDF
-        pdf_data = None
-        
-        def select_pdf():
-            nonlocal pdf_data
-            file_name, _ = QFileDialog.getOpenFileName(
-                dialog,
-                "Seleccionar PDF",
-                "",
-                "PDF Files (*.pdf)"
+            # Obtener datos del item seleccionado
+            item = selected_items[0]
+            id_documento = item.text(0)
+            
+            # Crear y configurar el diálogo
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Modificar Documento")
+            dialog.setFixedWidth(500)
+            
+            # Layout principal
+            layout = QVBoxLayout(dialog)
+            form_layout = QFormLayout()
+            
+            # Obtener datos actuales del documento
+            query = """
+                SELECT fecha, establecimiento, tipodocumento, nrodocumento, 
+                       materia, destino, firma, estado 
+                FROM documento 
+                WHERE id_documento = %s
+            """
+            resultado = DatabaseManager.execute_query(query, (id_documento,))[0]
+            
+            # Crear campos de entrada con los valores actuales
+            inputs = {}
+            fecha_input = QCalendarWidget()
+            fecha_input.setSelectedDate(QDate.fromString(str(resultado['fecha']), "yyyy-MM-dd"))
+            form_layout.addRow("Fecha:", fecha_input)
+            
+            # Campos de texto y ComboBox
+            campos = [
+                ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
+                ("tipodocumento", QComboBox(), [
+                    "Oficio", "Resolucion", "Ordinario", "Memo", 
+                    "Decreto", "Factura", "Carta"
+                ]),
+                ("nrodocumento", QLineEdit(), None),
+                ("materia", QLineEdit(), None),
+                ("destino", QComboBox(), DatabaseManager.get_departamentos()),
+                ("firma", QLineEdit(), None),
+                ("estado", QLineEdit(), None)
+            ]
+            
+            # Configurar cada campo
+            for campo, widget, opciones in campos:
+                if isinstance(widget, QComboBox):
+                    widget.addItems(opciones)
+                    widget.setCurrentText(str(resultado[campo]))
+                else:
+                    widget.setText(str(resultado[campo]))
+                inputs[campo] = widget
+                form_layout.addRow(f"{campo.capitalize()}:", widget)
+            
+            # Botones de acción
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Save | 
+                QDialogButtonBox.StandardButton.Cancel
             )
-            if file_name:
+            
+            def guardar_cambios():
                 try:
-                    with open(file_name, 'rb') as file:
-                        pdf_data = file.read()
-                    pdf_label.setText(os.path.basename(file_name))
-                    pdf_label.setStyleSheet(f"color: {COLORS['success']};")
+                    # Construir query de actualización
+                    query = """
+                        UPDATE documento 
+                        SET fecha = %s, establecimiento = %s, tipodocumento = %s,
+                            nrodocumento = %s, materia = %s, destino = %s,
+                            firma = %s, estado = %s
+                        WHERE id_documento = %s
+                    """
+                    
+                    # Obtener valores actualizados
+                    valores = [
+                        fecha_input.selectedDate().toString("yyyy-MM-dd"),
+                        inputs['establecimiento'].currentText(),
+                        inputs['tipodocumento'].currentText(),
+                        inputs['nrodocumento'].text(),
+                        inputs['materia'].text(),
+                        inputs['destino'].currentText(),
+                        inputs['firma'].text(),
+                        inputs['estado'].text(),
+                        id_documento
+                    ]
+                    
+                    # Ejecutar actualización
+                    DatabaseManager.execute_query(query, valores)
+                    self.mostrar_mensaje("Éxito", "Documento actualizado correctamente")
+                    dialog.accept()
+                    self.consultar_datos()  # Actualizar vista
+                    
                 except Exception as e:
-                    pdf_data = None
-                    pdf_label.setText(f"Error al cargar el PDF: {str(e)}")
-                    pdf_label.setStyleSheet(f"color: {COLORS['error']};")
-        
-        pdf_button.clicked.connect(select_pdf)
-        
-        # Botones de acción
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        
-        def guardar():
-            try:
-                # Obtener la fecha seleccionada en formato yyyy-MM-dd
-                fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
-                
-                # Construir la consulta SQL base
-                query = """INSERT INTO documento(
-                    fecha, establecimiento, tipodocumento, 
-                    nrodocumento, materia, destino, firma, estado"""
-                
-                values = [
-                    fecha_seleccionada,
-                    inputs['establecimiento'].currentText(),
-                    inputs['tipodocumento'].currentText(),
-                    inputs['nrodocumento'].text(),
-                    inputs['materia'].text(),
-                    inputs['destino'].currentText(),  # Cambiado a currentText()
-                    inputs['firma'].text(),
-                    inputs['estado'].text()
-                ]
-                
-                # Agregar campo de PDF si hay un archivo seleccionado
-                if pdf_data is not None:
-                    query += ", archivo_pdf"
-                    values.append(pdf_data)
-                
-                # Completar la consulta
-                query += ") VALUES(" + ", ".join(["%s"] * len(values)) + ")"
-                
-                # Ejecutar la consulta SQL
-                DatabaseManager.execute_query(query, values)
-                
-                QMessageBox.information(
-                    dialog,
-                    "Éxito",
-                    "Documento agregado exitosamente"
-                )
-                
-                dialog.accept()
-                self.consultar_datos()  # Actualizar la vista
-                
-            except Exception as e:
-                QMessageBox.critical(
-                    dialog,
-                    "Error",
-                    f"No se pudo agregar el documento: {str(e)}"
-                )
-        
-        button_box.accepted.connect(guardar)
-        button_box.rejected.connect(dialog.reject)
-        
-        # Agregar los layouts al diálogo
-        layout.addLayout(form_layout)
-        layout.addWidget(button_box)
-        
-        # Aplicar estilos
-        dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-                color: {COLORS['text']};
-            }}
-            QLineEdit {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px;
-                border: 1px solid {COLORS['primary']};
-                border-radius: 4px;
-            }}
-            QComboBox {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px;
-                border: 1px solid {COLORS['primary']};
-                border-radius: 4px;
-                min-width: 200px;
-            }}
-            QComboBox:hover {{
-                border-color: {COLORS['primary_light']};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                padding-right: 20px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                selection-background-color: {COLORS['primary']};
-                selection-color: {COLORS['text']};
-                border: 1px solid {COLORS['primary']};
-            }}
-            QLabel {{
-                color: {COLORS['text']};
-            }}
-        """)
-        
-        # Mostrar el diálogo
-        dialog.exec()
+                    self.mostrar_mensaje(
+                        "Error",
+                        f"No se pudo actualizar el documento: {str(e)}",
+                        QMessageBox.Icon.Critical
+                    )
+            
+            button_box.accepted.connect(guardar_cambios)
+            button_box.rejected.connect(dialog.reject)
+            
+            # Agregar layouts al diálogo
+            layout.addLayout(form_layout)
+            layout.addWidget(button_box)
+            
+            # Aplicar estilos
+            dialog.setStyleSheet(f"""
+                QDialog {{
+                    background-color: {COLORS['background']};
+                    color: {COLORS['text']};
+                }}
+                QLineEdit, QComboBox {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    padding: 8px;
+                    border: 1px solid {COLORS['primary']};
+                    border-radius: 4px;
+                    min-width: 200px;
+                }}
+            """)
+            
+            dialog.exec()
+            
+        except Exception as e:
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al abrir el formulario de modificación: {str(e)}",
+                QMessageBox.Icon.Critical
+            )
 
     def actualizar_datos_sin_progreso(self):
         try:
