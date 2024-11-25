@@ -17,8 +17,6 @@ import hashlib
 from io import BytesIO
 import json
 import os.path
-import openpyxl
-from datetime import datetime
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -174,21 +172,53 @@ class DatabaseManager:
         DatabaseManager.execute_query(query)
 
     @staticmethod
-    def register_user(username, password, email):
-        query = """
-        INSERT INTO usuarios (username, password, email)
-        VALUES (%s, %s, %s)
-        """
-        DatabaseManager.execute_query(query, (username, password, email))
+    def register_user(username, email, password, rol="usuario"):
+        """Registra un nuevo usuario con email"""
+        try:
+            salt = DatabaseManager.generate_salt()
+            password_hash = DatabaseManager.hash_password(password, salt)
+            
+            # Sentencia SQL actualizada con todos los campos necesarios
+            query = """
+            INSERT INTO usuario 
+                (nombreusuario, email, password_hash, salt, rol, departamento) 
+            VALUES 
+                (%s, %s, %s, %s, %s, 'Null')
+            """
+            
+            # Parámetros actualizados
+            params = (username, email, password_hash, salt, rol)
+            
+            # Ejecutar la consulta
+            DatabaseManager.execute_query(query, params)
+            return True
+            
+        except pymysql.err.IntegrityError as e:
+            if "Duplicate entry" in str(e):
+                if "email" in str(e):
+                    raise Exception("El email ya está registrado en el sistema")
+                else:
+                    raise Exception("El nombre de usuario ya está registrado en el sistema")
+            raise Exception(f"Error de integridad en la base de datos: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Error al registrar usuario: {str(e)}")
 
     @staticmethod
-    def validate_login(username, password):
+    def validate_login(email, password):
+        """Modificado para usar email en lugar de nombreusuario"""
         query = """
-        SELECT * FROM usuarios 
-        WHERE username = %s AND password = %s
+        SELECT password_hash, salt, rol 
+        FROM usuario 
+        WHERE email = %s
         """
-        result = DatabaseManager.execute_query(query, (username, password))
-        return len(result) > 0
+        result = DatabaseManager.execute_query(query, (email,))
+        
+        if result:
+            user = result[0]
+            password_hash = DatabaseManager.hash_password(password, user['salt'])
+            if password_hash == user['password_hash']:
+                return True, user['rol']
+        return False, None
 
     @staticmethod
     def generate_salt():
@@ -197,37 +227,6 @@ class DatabaseManager:
     @staticmethod
     def hash_password(password, salt):
         return hashlib.sha256((password + salt).encode()).hexdigest()
-
-    @staticmethod
-    def register_user(nombreusuario, password, rol="usuario"):
-        try:
-            salt = DatabaseManager.generate_salt()
-            password_hash = DatabaseManager.hash_password(password, salt)
-            
-            query = """
-            INSERT INTO usuario (nombreusuario, rol, password_hash, salt)
-            VALUES (%s, %s, %s, %s)
-            """
-            DatabaseManager.execute_query(query, (nombreusuario, rol, password_hash, salt))
-            return True
-        except Exception as e:
-            raise Exception(f"Error al registrar usuario: {str(e)}")
-
-    @staticmethod
-    def validate_login(nombreusuario, password):
-        query = """
-        SELECT password_hash, salt, rol 
-        FROM usuario 
-        WHERE nombreusuario = %s
-        """
-        result = DatabaseManager.execute_query(query, (nombreusuario,))
-        
-        if result:
-            user = result[0]
-            password_hash = DatabaseManager.hash_password(password, user['salt'])
-            if password_hash == user['password_hash']:
-                return True, user['rol']
-        return False, None
 
     @staticmethod
     def get_establecimientos():
@@ -285,9 +284,9 @@ class ProgressDialog(QDialog):
         self.progress_bar.setValue(value)
 
 class MainWindow(QMainWindow):
-    def __init__(self, username=None, user_role=None):
+    def __init__(self, email=None, user_role=None):  # Cambiado username por email
         super().__init__()
-        self.username = username
+        self.email = email  # Cambiado username por email
         self.user_role = user_role
         self.init_ui()
         self.setup_button_visibility()  # Añadir esta línea
@@ -300,7 +299,7 @@ class MainWindow(QMainWindow):
             user_info = self.findChild(QLabel, "user_info")
             if user_info:
                 # Actualizar el texto con la información del usuario actual
-                user_info.setText(f"Usuario: {self.username}\nRol: {self.user_role}")
+                user_info.setText(f"Usuario: {self.email}\nRol: {self.user_role}")  # Cambiado username por email
                 user_info.setStyleSheet(f"""
                     QLabel {{
                         color: white;
@@ -403,7 +402,6 @@ class MainWindow(QMainWindow):
             ("Consultar Documento", self.consultar_datos),
             ("Eliminar Documento", self.eliminar_datos),
             ("Modificar Documento", self.modificar_datos),
-            ("Generar Reporte", self.generar_reporte),  # Nueva opción
             ("Administrar", self.show_admin_panel)
         ]
 
@@ -435,7 +433,8 @@ class MainWindow(QMainWindow):
         left_layout.addStretch()
         
         # Panel de información de usuario
-        user_info = QLabel(f"Usuario: {self.username}\nRol: {self.user_role}")
+        user_info = QLabel(f"Usuario: {self.email}\nRol: {self.user_role}")
+        user_info.setObjectName("user_info")  # Importante: establecer el nombre del objeto
         user_info.setStyleSheet(f"""
             QLabel {{
                 color: white;
@@ -1338,119 +1337,167 @@ class MainWindow(QMainWindow):
         # Calendario con el mismo estilo
         fecha_input = QCalendarWidget()
         fecha_input.setGridVisible(True)
-        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
-        fecha_input.setStyleSheet("""
-            QCalendarWidget {
-                background-color: #1a1f2c;
-                color: white;
-            }
-            QCalendarWidget QToolButton {
-                color: white;
-                background-color: #2a3142;
+        fecha_input.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)  # Elimina números de semana
+        fecha_input.setFixedSize(300, 200)  # Tamaño más compacto
+        fecha_input.setStyleSheet(f"""
+            QCalendarWidget {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;  /* Color más claro para mejor legibilidad */
+                font-size: 12px;
+            }}
+            QCalendarWidget QToolButton {{
+                color: #E0E0E0;
+                background-color: {COLORS['surface']};
                 border-radius: 4px;
-            }
-            QCalendarWidget QMenu {
-                background-color: #2a3142;
-                color: white;
-            }
-            QCalendarWidget QSpinBox {
-                background-color: #2a3142;
-                color: white;
-            }
-            QCalendarWidget QTableView {
-                background-color: #2a3142;
-                selection-background-color: #1E88E5;
+                font-size: 13px;
+                padding: 3px;
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
+            QCalendarWidget QMenu {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            QCalendarWidget QSpinBox {{
+                background-color: {COLORS['surface']};
+                color: #E0E0E0;
+                font-size: 13px;
+            }}
+            /* Estilo para la vista de tabla del calendario */
+            QCalendarWidget QTableView {{
+                background-color: {COLORS['surface']};
+                selection-background-color: {COLORS['primary']};
                 selection-color: white;
-            }
+                alternate-background-color: {COLORS['background']};
+                font-size: 12px;
+            }}
+            /* Estilo para las celdas del calendario */
+            QCalendarWidget QTableView::item:hover {{
+                background-color: {COLORS['primary_light']};
+            }}
+            /* Estilo para el día seleccionado */
+            QCalendarWidget QTableView::item:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+            }}
+            /* Estilo para los encabezados de los días */
+            QCalendarWidget QTableView QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: #FFD700;  /* Dorado para los días de la semana */
+                font-weight: bold;
+                font-size: 12px;
+                padding: 2px;
+                border: none;
+            }}
+            /* Estilo para los días del mes actual */
+            QCalendarWidget QTableView::item:enabled {{
+                color: #E0E0E0;
+            }}
+            /* Estilo para los días de otros meses */
+            QCalendarWidget QTableView::item:disabled {{
+                color: #666666;
+            }}
+        """)
+        form_layout.addRow("Fecha:", fecha_input)
+        
+        # Inicializar el diccionario inputs
+        inputs = {}
+        
+        # Obtener la lista de departamentos
+        departamentos = DatabaseManager.get_departamentos()
+        establecimientos = DatabaseManager.get_establecimientos()
+        
+        # Campos de texto y sus configuraciones
+        campos = [
+            ("establecimiento", QComboBox()),
+            ("tipodocumento", QComboBox()),
+            ("nrodocumento", QLineEdit()),
+            ("materia", QLineEdit()),
+            ("destino", QComboBox()),  # Cambiado a QComboBox
+            ("firma", QLineEdit()),
+            ("estado", QLineEdit())
+        ]
+        
+        # Crear los inputs y guardarlos en el diccionario
+        for campo in campos:
+            inputs[campo[0]] = campo[1]
+            form_layout.addRow(f"{campo[0].capitalize()}:", campo[1])
+        
+        # Configurar el ComboBox de establecimientos
+        inputs['establecimiento'].addItems(establecimientos)
+        
+        # Configurar el ComboBox de destino con los mismos departamentos
+        inputs['destino'].addItems(departamentos)
+        
+        # Aplicar el mismo estilo a ambos ComboBox
+        combobox_style = f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+        """
+        
+        inputs['establecimiento'].setStyleSheet(combobox_style)
+        inputs['destino'].setStyleSheet(combobox_style)
+        
+        # Configurar el ComboBox de tipo de documento
+        inputs['tipodocumento'].addItems([
+            "Oficio",
+            "Resolucion",
+            "Ordinario",
+            "Memo",
+            "Decreto",
+            "Factura",
+            "Carta",
+        ])
+        
+        # Agregar botón para seleccionar PDF
+        pdf_button = QPushButton("Seleccionar PDF")
+        pdf_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+            }}
         """)
         
-        # Establecer la fecha actual del registro
-        current_date = QDate.fromString(item.text(1), "yyyy-MM-dd")
-        fecha_input.setSelectedDate(current_date)
-        layout.addRow(fecha_input)
-
-        # Campos con el mismo estilo que el formulario original
-        field_style = """
-            QLineEdit, QComboBox {
-                background-color: #1a1f2c;
-                color: white;
-                border: 1px solid #1E88E5;
-                border-radius: 4px;
-                padding: 8px;
-                min-height: 20px;
-            }
-        """
-
-        # Crear los campos
-        fields = {
-            'Establecimiento': ('QComboBox', DatabaseManager.get_establecimientos(), item.text(2)),
-            'Tipodocumento': ('QComboBox', ['Oficio', 'Resolucion', 'Ordinario', 'Memo', 'Decreto', 'Factura', 'Carta'], item.text(3)),
-            'Nrodocumento': ('QLineEdit', None, item.text(4)),
-            'Materia': ('QLineEdit', None, item.text(5)),
-            'Destino': ('QComboBox', DatabaseManager.get_departamentos(), item.text(6)),
-            'Firma': ('QLineEdit', None, item.text(7)),
-            'Estado': ('QLineEdit', None, item.text(8))
-        }
-
-        inputs = {}
-        for label, (field_type, options, current_value) in fields.items():
-            label_widget = QLabel(f"{label}:")
-            label_widget.setStyleSheet("color: white;")
-            
-            if field_type == 'QComboBox':
-                widget = QComboBox()
-                widget.addItems(options)
-                index = widget.findText(current_value)
-                if index >= 0:
-                    widget.setCurrentIndex(index)
-            else:
-                widget = QLineEdit(current_value)
-            
-            widget.setStyleSheet(field_style)
-            layout.addRow(label_widget, widget)
-            inputs[label.lower()] = widget
-
-        # Botón para PDF
-        pdf_button = QPushButton("Seleccionar PDF")
         pdf_label = QLabel("No se ha seleccionado ningún archivo")
-        pdf_label.setStyleSheet("color: white;")
+        pdf_label.setStyleSheet(f"color: {COLORS['text_secondary']};")
         
         pdf_layout = QHBoxLayout()
         pdf_layout.addWidget(pdf_button)
         pdf_layout.addWidget(pdf_label)
-        layout.addRow("PDF:", pdf_layout)
-
-        # Botones OK y Cancel
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        button_box.setStyleSheet("""
-            QPushButton {
-                background-color: #1E88E5;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
-        layout.addRow(button_box)
-
-        # Estilo general del diálogo
-        dialog.setStyleSheet("""
-            QDialog {
-                background-color: #1a1f2c;
-            }
-        """)
-
-        # Resto del código para manejar el guardado...
-
+        
+        form_layout.addRow("PDF:", pdf_layout)
+        
         # Variable para almacenar el PDF
         pdf_data = None
-
+        
         def select_pdf():
             nonlocal pdf_data
             file_name, _ = QFileDialog.getOpenFileName(
@@ -1464,29 +1511,29 @@ class MainWindow(QMainWindow):
                     with open(file_name, 'rb') as file:
                         pdf_data = file.read()
                     pdf_label.setText(os.path.basename(file_name))
-                    pdf_label.setStyleSheet("color: #4CAF50;")  # Verde para éxito
+                    pdf_label.setStyleSheet(f"color: {COLORS['success']};")
                 except Exception as e:
                     pdf_data = None
                     pdf_label.setText(f"Error al cargar el PDF: {str(e)}")
-                    pdf_label.setStyleSheet("color: #F44336;")  # Rojo para error
-
+                    pdf_label.setStyleSheet(f"color: {COLORS['error']};")
+        
         pdf_button.clicked.connect(select_pdf)
-
-        def guardar_modificacion():
+        
+        # Botones de acción
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        
+        def guardar():
             try:
                 # Obtener la fecha seleccionada en formato yyyy-MM-dd
                 fecha_seleccionada = fecha_input.selectedDate().toString("yyyy-MM-dd")
                 
                 # Construir la consulta SQL base
-                query = """UPDATE documento SET 
-                    fecha = %s,
-                    establecimiento = %s,
-                    tipodocumento = %s,
-                    nrodocumento = %s,
-                    materia = %s,
-                    destino = %s,
-                    firma = %s,
-                    estado = %s"""
+                query = """INSERT INTO documento(
+                    fecha, establecimiento, tipodocumento, 
+                    nrodocumento, materia, destino, firma, estado"""
                 
                 values = [
                     fecha_seleccionada,
@@ -1494,19 +1541,18 @@ class MainWindow(QMainWindow):
                     inputs['tipodocumento'].currentText(),
                     inputs['nrodocumento'].text(),
                     inputs['materia'].text(),
-                    inputs['destino'].currentText(),
+                    inputs['destino'].currentText(),  # Cambiado a currentText()
                     inputs['firma'].text(),
                     inputs['estado'].text()
                 ]
                 
                 # Agregar campo de PDF si hay un archivo seleccionado
                 if pdf_data is not None:
-                    query += ", archivo_pdf = %s"
+                    query += ", archivo_pdf"
                     values.append(pdf_data)
                 
-                # Agregar la condición WHERE
-                query += " WHERE id_documento = %s"
-                values.append(id_to_modify)
+                # Completar la consulta
+                query += ") VALUES(" + ", ".join(["%s"] * len(values)) + ")"
                 
                 # Ejecutar la consulta SQL
                 DatabaseManager.execute_query(query, values)
@@ -1514,7 +1560,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     dialog,
                     "Éxito",
-                    "Documento modificado exitosamente"
+                    "Documento agregado exitosamente"
                 )
                 
                 dialog.accept()
@@ -1524,15 +1570,58 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(
                     dialog,
                     "Error",
-                    f"No se pudo modificar el documento: {str(e)}"
+                    f"No se pudo agregar el documento: {str(e)}"
                 )
-
-        # Conectar los botones
-        button_box.accepted.connect(guardar_modificacion)
+        
+        button_box.accepted.connect(guardar)
         button_box.rejected.connect(dialog.reject)
-
+        
+        # Agregar los layouts al diálogo
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        
+        # Aplicar estilos
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+            }}
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+            }}
+        """)
+        
+        # Mostrar el diálogo
         dialog.exec()
-
 
     def actualizar_datos_sin_progreso(self):
         try:
@@ -1688,14 +1777,14 @@ class MainWindow(QMainWindow):
         login = LoginDialog()
         if login.exec() == QDialog.DialogCode.Accepted:
             # Actualizar las credenciales del usuario
-            self.username = login.username_input.text()
+            self.email = login.email_input.text()  # Cambiado de username a email
             self.user_role = login.get_user_role()
             
             # Actualizar la información del usuario
             self.setup_user_info()
             
             # Actualizar la visibilidad de los botones según el nuevo rol
-            self.setup_button_visibility()  # Llamar al método que configura los botones
+            self.setup_button_visibility()
             
             self.show()
         else:
@@ -1764,82 +1853,6 @@ class MainWindow(QMainWindow):
         for i in range(self.tree_widget.topLevelItemCount()):
             self.tree_widget.topLevelItem(i).setHidden(False)
 
-    def generar_reporte(self):
-        try:
-            # Obtener la ruta donde guardar el archivo
-            file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "Guardar Reporte Excel",
-                f"reporte_documentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                "Excel Files (*.xlsx)"
-            )
-            
-            if not file_name:
-                return
-                
-            # Crear un nuevo libro de Excel
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Documentos"
-            
-            # Definir encabezados
-            headers = [
-                "ID", "Fecha", "Establecimiento", "Tipo Doc", 
-                "Nro Doc", "Materia", "Destino", "Firma", "Estado"
-            ]
-            
-            # Estilo para encabezados
-            header_style = openpyxl.styles.NamedStyle(
-                name='header',
-                font=openpyxl.styles.Font(bold=True, color='FFFFFF'),
-                fill=openpyxl.styles.PatternFill(
-                    start_color='1E88E5',
-                    end_color='1E88E5',
-                    fill_type='solid'
-                ),
-                alignment=openpyxl.styles.Alignment(horizontal='center')
-            )
-            
-            # Escribir encabezados
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.style = header_style
-            
-            # Obtener datos del TreeWidget
-            row_num = 2
-            for i in range(self.tree_widget.topLevelItemCount()):
-                item = self.tree_widget.topLevelItem(i)
-                for col in range(9):  # 9 columnas (excluyendo PDF)
-                    ws.cell(row=row_num, column=col + 1, value=item.text(col))
-                row_num += 1
-            
-            # Ajustar ancho de columnas
-            for col in ws.columns:
-                max_length = 0
-                column = col[0].column_letter
-                
-                for cell in col:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
-                
-                adjusted_width = (max_length + 2)
-                ws.column_dimensions[column].width = adjusted_width
-            
-            # Guardar el archivo
-            wb.save(file_name)
-            
-            self.mostrar_mensaje(
-                "Éxito",
-                f"Reporte generado exitosamente en:\n{file_name}"
-            )
-            
-        except Exception as e:
-            self.mostrar_mensaje(
-                "Error",
-                f"Error al generar el reporte: {str(e)}",
-                QMessageBox.Icon.Critical
-            )
-
 import json
 import os
 
@@ -1847,15 +1860,15 @@ class CredentialManager:
     CACHE_FILE = 'credentials_cache.json'
     
     @classmethod
-    def save_credentials(cls, username, password, remember=True):
-        """Guarda las credenciales del usuario tal cual las ingresó"""
+    def save_credentials(cls, email, password, remember=True):
+        """Guarda las credenciales del usuario"""
         try:
             if not remember:
                 cls.clear_credentials()
                 return
                 
             data = {
-                'username': username,
+                'email': email,  # Cambiado de username a email
                 'password': password
             }
             
@@ -1891,17 +1904,17 @@ class CredentialManager:
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Inicio de Sesin - Corporación Isla de Maipo")
+        self.setWindowTitle("Inicio de Sesión - Corporación Isla de Maipo")
         self.setFixedWidth(550)
-        self.setFixedHeight(650)  # Aumentado de 500 a 650
+        self.setFixedHeight(650)
         self.user_role = None
         self.setup_ui()
         
         # Cargar credenciales guardadas
         saved_credentials = CredentialManager.load_credentials()
         if saved_credentials:
-            self.username_input.setText(saved_credentials['username'])
-            self.password_input.setText(saved_credentials['password'])
+            self.email_input.setText(saved_credentials.get('email', ''))  # Cambiado de username a email
+            self.password_input.setText(saved_credentials.get('password', ''))
             self.remember_checkbox.setChecked(True)
 
     def setup_ui(self):
@@ -1935,13 +1948,13 @@ class LoginDialog(QDialog):
         form_layout = QFormLayout(form_widget)
         form_layout.setSpacing(15)
 
-        # Usuario
-        self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("Ingrese su usuario")
-        self.username_input.setStyleSheet(create_input_style())
-        self.username_input.setMinimumHeight(42)
-        self.username_input.setFont(QFont("Segoe UI", 14))
-        self.username_input.returnPressed.connect(self.login)
+        # Modificar el campo de usuario por email
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("Ingrese su email")
+        self.email_input.setStyleSheet(create_input_style())
+        self.email_input.setMinimumHeight(42)
+        self.email_input.setFont(QFont("Segoe UI", 14))
+        self.email_input.returnPressed.connect(self.login)
 
         # Contenedor para el campo de contraseña
         password_container = QWidget()
@@ -1967,7 +1980,7 @@ class LoginDialog(QDialog):
         password_layout.addWidget(self.toggle_password_btn)
 
         # Agregar los contenedores al formulario
-        form_layout.addRow(self.create_label("Usuario:"), self.username_input)
+        form_layout.addRow(self.create_label("Email:"), self.email_input)
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
 
         main_layout.addWidget(form_widget)
@@ -1998,8 +2011,9 @@ class LoginDialog(QDialog):
         main_layout.addWidget(self.remember_checkbox)
 
         # Botones
-        buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(10)
+        buttons_layout = QHBoxLayout()  # Cambiado a QHBoxLayout
+        buttons_layout.setSpacing(20)  # Espaciado entre botones
+        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Centrar botones
 
         # Botón de inicio de sesión
         login_btn = QPushButton("Iniciar Sesión")
@@ -2067,25 +2081,34 @@ class LoginDialog(QDialog):
 
     def login(self):
         try:
-            username = self.username_input.text()
+            email = self.email_input.text()
             password = self.password_input.text()
             
-            if not username or not password:
+            if not email or not password:
                 self.show_custom_error(
                     "Campos Incompletos", 
                     "Por favor complete todos los campos para iniciar sesión.",
-                    "Los campos de usuario y contraseña son obligatorios."
+                    "Los campos de email y contraseña son obligatorios."
                 )
                 return
                 
-            success, role = DatabaseManager.validate_login(username, password)
+            # Validar formato de email básico
+            if '@' not in email or '.' not in email:
+                self.show_custom_error(
+                    "Email Inválido",
+                    "Por favor ingrese un email válido.",
+                    "El formato debe ser ejemplo@dominio.com"
+                )
+                return
+                
+            success, role = DatabaseManager.validate_login(email, password)
             if success:
                 self.user_role = role
                 
                 # Guardar credenciales si el checkbox está marcado
                 if self.remember_checkbox.isChecked():
                     CredentialManager.save_credentials(
-                        username, 
+                        email, 
                         password, 
                         remember=True
                     )
@@ -2097,7 +2120,7 @@ class LoginDialog(QDialog):
                 self.show_custom_error(
                     "Error de Autenticación", 
                     "No se pudo iniciar sesión con las credenciales proporcionadas.",
-                    "Por favor verifique su usuario y contraseña."
+                    "Por favor verifique su email y contraseña."
                 )
         except Exception as e:
             self.show_error_message(str(e))
@@ -2218,20 +2241,24 @@ class LoginDialog(QDialog):
             }}
         """
 
+    def get_user_email(self):  # Nuevo método para obtener el email
+        """Retorna el email del usuario"""
+        return self.email_input.text()
+
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
         super().__init__(parent)
         self.setWindowTitle("Registro de Usuario - Corporación Isla de Maipo")
-        self.setFixedWidth(520)
-        self.setFixedHeight(600)
+        self.setFixedWidth(600)  # Reducido el ancho
+        self.setFixedHeight(750)  # Reducido el alto
         self.admin_mode = admin_mode
         self.setup_ui()
 
     def setup_ui(self):
-        # Layout principal con márgenes y espaciado
+        # Layout principal con márgenes ajustados
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(40, 30, 40, 30)
+        main_layout.setSpacing(20)  # Reducido el espaciado
+        main_layout.setContentsMargins(40, 20, 40, 20)  # Reducido márgenes superior e inferior
 
         # Logo
         logo_label = QLabel()
@@ -2249,8 +2276,8 @@ class RegisterDialog(QDialog):
                 color: {COLORS['text']};
                 font-size: 24px;
                 font-weight: bold;
-                margin-bottom: 20px;
-                padding: 10px;
+                margin: 20px 0;
+                padding: 15px;
                 background-color: {COLORS['surface']};
                 border-radius: 8px;
             }}
@@ -2260,23 +2287,25 @@ class RegisterDialog(QDialog):
         # Formulario
         form_widget = QWidget()
         form_layout = QFormLayout(form_widget)
-        form_layout.setSpacing(15)
+        form_layout.setSpacing(20)  # Aumentado el espaciado entre campos
+        form_layout.setContentsMargins(10, 10, 10, 10)  # Márgenes internos
 
         # Campos de entrada con estilos mejorados
         self.username_input = self.create_input("Ingrese un nombre de usuario")
+        self.email_input = self.create_input("Ingrese su correo electrónico")
         
         # Contenedor para contraseña
         password_container = QWidget()
         password_layout = QHBoxLayout(password_container)
         password_layout.setContentsMargins(0, 0, 0, 0)
-        password_layout.setSpacing(5)
+        password_layout.setSpacing(10)  # Espaciado entre campo y botón
         
         self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
         password_layout.addWidget(self.password_input)
         
         # Botón de visibilidad para contraseña
         self.toggle_password_btn = QPushButton("🔒")
-        self.toggle_password_btn.setFixedSize(35, 35)
+        self.toggle_password_btn.setFixedSize(42, 42)  # Botón más grande
         self.toggle_password_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_password_btn.setStyleSheet(self.create_visibility_button_style())
         self.toggle_password_btn.clicked.connect(self.toggle_password_visibility)
@@ -2286,48 +2315,71 @@ class RegisterDialog(QDialog):
         confirm_container = QWidget()
         confirm_layout = QHBoxLayout(confirm_container)
         confirm_layout.setContentsMargins(0, 0, 0, 0)
-        confirm_layout.setSpacing(5)
+        confirm_layout.setSpacing(10)
         
         self.confirm_password_input = self.create_input("Confirme su contraseña", is_password=True)
         confirm_layout.addWidget(self.confirm_password_input)
         
         # Botón de visibilidad para confirmar contraseña
         self.toggle_confirm_btn = QPushButton("🔒")
-        self.toggle_confirm_btn.setFixedSize(35, 35)
+        self.toggle_confirm_btn.setFixedSize(42, 42)
         self.toggle_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_confirm_btn.setStyleSheet(self.create_visibility_button_style())
         self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
         confirm_layout.addWidget(self.toggle_confirm_btn)
 
-        # Agregar los campos al formulario
+        # Agregar los campos al formulario con espaciado
         form_layout.addRow(self.create_label("Usuario:"), self.username_input)
+        form_layout.addRow(self.create_label("Email:"), self.email_input)
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
         form_layout.addRow(self.create_label("Confirmar:"), confirm_container)
 
+        # Agregar ComboBox para rol si es modo admin
+        if self.admin_mode:
+            self.role_combo = QComboBox()
+            self.role_combo.addItems(["usuario", "recepcionista", "admin"])
+            self.role_combo.setStyleSheet(self.create_combo_style())
+            self.role_combo.setFixedHeight(42)  # Altura consistente
+            form_layout.addRow(self.create_label("Rol:"), self.role_combo)
+
         main_layout.addWidget(form_widget)
 
-        # Botones con estilos mejorados
-        buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(10)
+        # Ajustar espaciado antes de los botones (reducido para subirlos)
+        main_layout.addSpacing(10)  # Reducido el espaciado antes de los botones
+
+        # Botones
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(15)
+        buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Botón de registro
         register_btn = QPushButton("Registrar Usuario")
+        register_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         register_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['primary']};
                 color: {COLORS['text']};
                 border: none;
-                padding: 12px 20px;
+                padding: 8px 16px;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
-                min-width: 150px;
+                min-width: 140px;
+                height: 35px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                transition: all 0.3s ease;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['primary_dark']};
+                background-color: {COLORS['primary_light']};
+                transform: translateY(-2px);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['primary']};
+                background-color: {COLORS['primary_dark']};
+                transform: translateY(1px);
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             }}
         """)
         register_btn.clicked.connect(self.register)
@@ -2335,44 +2387,41 @@ class RegisterDialog(QDialog):
 
         # Botón cancelar
         cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: transparent;
-                color: {COLORS['error']};
+                color: {COLORS['text']};
                 border: 2px solid {COLORS['error']};
-                padding: 12px 20px;
+                padding: 8px 16px;
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
-                min-width: 150px;
+                min-width: 140px;
+                height: 35px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                transition: all 0.3s ease;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['error']};
                 color: {COLORS['text']};
+                border-color: transparent;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 6px rgba(239, 83, 80, 0.3);
+            }}
+            QPushButton:pressed {{
+                transform: translateY(1px);
+                box-shadow: 0 2px 4px rgba(239, 83, 80, 0.2);
             }}
         """)
         cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
 
         main_layout.addLayout(buttons_layout)
-
-        # Estilo general del diálogo
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-        """)
-
-    def create_label(self, text):
-        label = QLabel(text)
-        label.setStyleSheet(f"""
-            QLabel {{
-                color: {COLORS['text']};
-                font-size: 14px;
-                font-weight: bold;
-            }}
-        """)
-        return label
+        
+        # Reducido el espaciado después de los botones
+        main_layout.addSpacing(15)
 
     def create_input(self, placeholder, is_password=False):
         input_field = QLineEdit()
@@ -2381,12 +2430,13 @@ class RegisterDialog(QDialog):
             input_field.setEchoMode(QLineEdit.EchoMode.Password)
         input_field.setStyleSheet(f"""
             QLineEdit {{
-                padding: 10px 12px;
+                padding: 12px 15px;
                 border: 2px solid {COLORS['surface']};
                 border-radius: 6px;
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
                 font-size: 14px;
+                min-width: 350px;  # Reducido el ancho
             }}
             QLineEdit:focus {{
                 border: 2px solid {COLORS['primary']};
@@ -2397,15 +2447,27 @@ class RegisterDialog(QDialog):
                 opacity: 0.7;
             }}
         """)
-        input_field.setMinimumHeight(42)
+        input_field.setMinimumHeight(42)  # Reducido ligeramente el alto
         return input_field
+
+    def create_label(self, text):
+        label = QLabel(text)
+        label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 14px;
+                font-weight: bold;
+                margin-right: 15px;
+            }}
+        """)
+        return label
 
     def create_visibility_button_style(self):
         return f"""
             QPushButton {{
                 background-color: {COLORS['surface']};
-                border: none;
-                border-radius: 4px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
                 padding: 5px;
                 font-size: 18px;
                 color: {COLORS['text']};
@@ -2415,18 +2477,56 @@ class RegisterDialog(QDialog):
             }}
         """
 
+    def create_combo_style(self):
+        return f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 10px 15px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
+                min-width: 300px;
+                font-size: 14px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+            }}
+        """
+
     def register(self):
         try:
             username = self.username_input.text()
+            email = self.email_input.text()  # Obtener email
             password = self.password_input.text()
             confirm_password = self.confirm_password_input.text()
-            role = self.role_combo.currentText()
+            role = self.role_combo.currentText() if self.admin_mode else "usuario"
             
-            if not all([username, password, confirm_password]):
+            # Validaciones
+            if not all([username, email, password, confirm_password]):
                 self.show_custom_error(
                     "Campos Incompletos",
                     "Por favor complete todos los campos para registrarse.",
                     "Todos los campos son obligatorios para crear una cuenta."
+                )
+                return
+            
+            # Validar formato de email
+            if not self.validate_email(email):
+                self.show_custom_error(
+                    "Email Inválido",
+                    "Por favor ingrese un email válido.",
+                    "El formato debe ser ejemplo@dominio.com"
                 )
                 return
             
@@ -2438,6 +2538,7 @@ class RegisterDialog(QDialog):
                 )
                 return
             
+            # Validaciones de contraseña
             if len(password) < 8:
                 self.show_custom_error(
                     "Contraseña Débil",
@@ -2462,19 +2563,27 @@ class RegisterDialog(QDialog):
                 )
                 return
                 
-            DatabaseManager.register_user(username, password, role)
+            # Registrar usuario con email
+            DatabaseManager.register_user(username, email, password, role)
             self.show_custom_success(
                 "Registro Exitoso",
                 "¡Usuario registrado correctamente!",
                 "Ya puede iniciar sesión con sus credenciales."
             )
             self.accept()
+            
         except Exception as e:
             self.show_custom_error(
                 "Error de Registro",
                 "No se pudo completar el registro.",
                 str(e)
             )
+
+    def validate_email(self, email):
+        """Validación básica de formato de email"""
+        import re
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, email) is not None
 
     def show_custom_error(self, title, message, detail):
         error_dialog = QDialog(self)
@@ -3199,8 +3308,10 @@ def main():
     login = LoginDialog()
     if login.exec() == QDialog.DialogCode.Accepted:
         user_role = login.get_user_role()
-        username = login.username_input.text()  # Obtener el nombre de usuario
-        window = MainWindow(username=username, user_role=user_role)  # Pasar los datos
+        user_email = login.get_user_email()
+        
+        # Crear la ventana principal pasando email en lugar de username
+        window = MainWindow(email=user_email, user_role=user_role)  # Corregido aquí
         
         # Configurar visibilidad de botones según el rol del usuario
         for button in window.findChildren(QToolButton):
