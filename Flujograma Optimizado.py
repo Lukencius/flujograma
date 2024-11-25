@@ -172,22 +172,22 @@ class DatabaseManager:
         DatabaseManager.execute_query(query)
 
     @staticmethod
-    def register_user(username, email, password, rol="usuario"):
-        """Registra un nuevo usuario con email"""
+    def register_user(username, email, password, rol="usuario", departamento=None):
+        """Registra un nuevo usuario con email y departamento"""
         try:
             salt = DatabaseManager.generate_salt()
             password_hash = DatabaseManager.hash_password(password, salt)
             
-            # Sentencia SQL actualizada con todos los campos necesarios
+            # Sentencia SQL actualizada con departamento
             query = """
             INSERT INTO usuario 
                 (nombreusuario, email, password_hash, salt, rol, departamento) 
             VALUES 
-                (%s, %s, %s, %s, %s, 'Null')
+                (%s, %s, %s, %s, %s, %s)
             """
             
-            # Parámetros actualizados
-            params = (username, email, password_hash, salt, rol)
+            # Parámetros actualizados incluyendo departamento
+            params = (username, email, password_hash, salt, rol, departamento)
             
             # Ejecutar la consulta
             DatabaseManager.execute_query(query, params)
@@ -2298,7 +2298,7 @@ class RegisterDialog(QDialog):
         password_container = QWidget()
         password_layout = QHBoxLayout(password_container)
         password_layout.setContentsMargins(0, 0, 0, 0)
-        password_layout.setSpacing(10)  # Espaciado entre campo y botón
+        password_layout.setSpacing(10)
         
         self.password_input = self.create_input("Ingrese una contraseña segura", is_password=True)
         password_layout.addWidget(self.password_input)
@@ -2328,11 +2328,48 @@ class RegisterDialog(QDialog):
         self.toggle_confirm_btn.clicked.connect(self.toggle_confirm_visibility)
         confirm_layout.addWidget(self.toggle_confirm_btn)
 
+        # Agregar ComboBox para departamento
+        self.departamento_combo = QComboBox()
+        self.departamento_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 12px 15px;
+                border: 2px solid {COLORS['surface']};
+                border-radius: 6px;
+                min-width: 350px;
+                font-size: 14px;
+            }}
+            QComboBox:hover {{
+                border: 2px solid {COLORS['primary']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 20px;
+            }}
+            QComboBox::down-arrow {{
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                selection-background-color: {COLORS['primary']};
+                selection-color: {COLORS['text']};
+            }}
+        """)
+        
+        # Obtener y cargar departamentos
+        departamentos = DatabaseManager.get_departamentos()
+        self.departamento_combo.addItems(departamentos)
+
         # Agregar los campos al formulario con espaciado
         form_layout.addRow(self.create_label("Usuario:"), self.username_input)
         form_layout.addRow(self.create_label("Email:"), self.email_input)
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
         form_layout.addRow(self.create_label("Confirmar:"), confirm_container)
+        form_layout.addRow(self.create_label("Departamento:"), self.departamento_combo)
 
         # Agregar ComboBox para rol si es modo admin
         if self.admin_mode:
@@ -2507,10 +2544,11 @@ class RegisterDialog(QDialog):
     def register(self):
         try:
             username = self.username_input.text()
-            email = self.email_input.text()  # Obtener email
+            email = self.email_input.text()
             password = self.password_input.text()
             confirm_password = self.confirm_password_input.text()
-            role = self.role_combo.currentText() if self.admin_mode else "usuario"
+            departamento = self.departamento_combo.currentText()
+            rol = self.role_combo.currentText() if self.admin_mode else "usuario"
             
             # Validaciones
             if not all([username, email, password, confirm_password]):
@@ -2563,8 +2601,8 @@ class RegisterDialog(QDialog):
                 )
                 return
                 
-            # Registrar usuario con email
-            DatabaseManager.register_user(username, email, password, role)
+            # Registrar usuario con departamento
+            DatabaseManager.register_user(username, email, password, rol, departamento)
             self.show_custom_success(
                 "Registro Exitoso",
                 "¡Usuario registrado correctamente!",
