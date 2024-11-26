@@ -1820,7 +1820,7 @@ class MainWindow(QMainWindow):
                 update_query = """
                     UPDATE solicitudes_documento 
                     SET departamento_destino = %s,
-                        fecha_solicitud = CURRENT_TIMESTAMP
+                        fecha_solicitud = CONVERT_TZ(NOW(), 'UTC', 'America/Santiago')
                     WHERE id_documento = %s 
                     AND estado = 'pendiente'
                 """
@@ -1840,8 +1840,8 @@ class MainWindow(QMainWindow):
                 # Si no existe, creamos una nueva solicitud
                 insert_query = """
                     INSERT INTO solicitudes_documento 
-                    (id_documento, departamento_origen, departamento_destino) 
-                    VALUES (%s, %s, %s)
+                    (id_documento, departamento_origen, departamento_destino, fecha_solicitud) 
+                    VALUES (%s, %s, %s, CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'))
                 """
                 values = (
                     documento['id_documento'],
