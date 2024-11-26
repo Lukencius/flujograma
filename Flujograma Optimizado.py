@@ -207,7 +207,7 @@ class DatabaseManager:
     def validate_login(email, password):
         """Modificado para usar email en lugar de nombreusuario"""
         query = """
-        SELECT password_hash, salt, rol 
+        SELECT password_hash, salt, rol, departamento 
         FROM usuario 
         WHERE email = %s
         """
@@ -217,8 +217,8 @@ class DatabaseManager:
             user = result[0]
             password_hash = DatabaseManager.hash_password(password, user['salt'])
             if password_hash == user['password_hash']:
-                return True, user['rol']
-        return False, None
+                return True, user['rol'], user['departamento']
+        return False, None, None
 
     @staticmethod
     def generate_salt():
@@ -284,13 +284,14 @@ class ProgressDialog(QDialog):
         self.progress_bar.setValue(value)
 
 class MainWindow(QMainWindow):
-    def __init__(self, email=None, user_role=None):  # Cambiado username por email
+    def __init__(self, email=None, user_role=None, departamento=None):  # Agregamos departamento
         super().__init__()
-        self.email = email  # Cambiado username por email
+        self.email = email
         self.user_role = user_role
+        self.departamento = departamento  # Nuevo atributo
         self.init_ui()
-        self.setup_button_visibility()  # Añadir esta línea
-        self.setup_user_info()  # Añadir esta línea
+        self.setup_button_visibility()
+        self.setup_user_info()
         
     def setup_user_info(self):
         """Configura la información del usuario en la interfaz"""
@@ -299,7 +300,7 @@ class MainWindow(QMainWindow):
             user_info = self.findChild(QLabel, "user_info")
             if user_info:
                 # Actualizar el texto con la información del usuario actual
-                user_info.setText(f"Usuario: {self.email}\nRol: {self.user_role}")  # Cambiado username por email
+                user_info.setText(f"Usuario: {self.email}\nRol: {self.user_role}\nDepartamento: {self.departamento}")  # Agregado departamento
                 user_info.setStyleSheet(f"""
                     QLabel {{
                         color: white;
@@ -433,7 +434,7 @@ class MainWindow(QMainWindow):
         left_layout.addStretch()
         
         # Panel de información de usuario
-        user_info = QLabel(f"Usuario: {self.email}\nRol: {self.user_role}")
+        user_info = QLabel(f"Usuario: {self.email}\nRol: {self.user_role}\nDepartamento: {self.departamento}")  # Agregado departamento
         user_info.setObjectName("user_info")  # Importante: establecer el nombre del objeto
         user_info.setStyleSheet(f"""
             QLabel {{
@@ -774,6 +775,11 @@ class MainWindow(QMainWindow):
         # Crear el formulario
         form_layout = QFormLayout()
         
+        # Crear contenedor para el calendario
+        fecha_container = QWidget()
+        fecha_layout = QVBoxLayout(fecha_container)
+        fecha_layout.setContentsMargins(0, 0, 0, 20)
+        
         # Agregar el calendario
         fecha_input = QCalendarWidget()
         fecha_input.setGridVisible(True)
@@ -840,36 +846,32 @@ class MainWindow(QMainWindow):
                 color: #666666;
             }}
         """)
-        form_layout.addRow("Fecha:", fecha_input)
-        
+        fecha_layout.addWidget(fecha_input)
+        form_layout.addRow("Fecha:", fecha_container)
+
         # Inicializar el diccionario inputs
         inputs = {}
         
-        # Obtener la lista de departamentos
-        departamentos = DatabaseManager.get_departamentos()
-        establecimientos = DatabaseManager.get_establecimientos()
-        
-        # Campos de texto y sus configuraciones
+        # Campos de texto y sus configuraciones (removemos lugar_actual del formulario visual)
         campos = [
-            ("establecimiento", QComboBox()),
-            ("tipodocumento", QComboBox()),
-            ("nrodocumento", QLineEdit()),
-            ("materia", QLineEdit()),
-            ("destino", QComboBox()),  # Cambiado a QComboBox
-            ("firma", QLineEdit()),
-            ("estado", QLineEdit())
+            ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
+            ("tipodocumento", QComboBox(), [
+                "Oficio", "Resolucion", "Ordinario", "Memo", 
+                "Decreto", "Factura", "Carta"
+            ]),
+            ("nrodocumento", QLineEdit(), None),
+            ("materia", QLineEdit(), None),
+            ("destino", QComboBox(), DatabaseManager.get_departamentos()),
+            ("firma", QLineEdit(), None),
+            ("estado", QLineEdit(), None)
         ]
         
         # Crear los inputs y guardarlos en el diccionario
-        for campo in campos:
-            inputs[campo[0]] = campo[1]
-            form_layout.addRow(f"{campo[0].capitalize()}:", campo[1])
-        
-        # Configurar el ComboBox de establecimientos
-        inputs['establecimiento'].addItems(establecimientos)
-        
-        # Configurar el ComboBox de destino con los mismos departamentos
-        inputs['destino'].addItems(departamentos)
+        for campo, widget, opciones in campos:
+            if isinstance(widget, QComboBox) and opciones:
+                widget.addItems(opciones)
+            inputs[campo] = widget
+            form_layout.addRow(f"{campo.capitalize()}:", widget)
         
         # Aplicar el mismo estilo a ambos ComboBox
         combobox_style = f"""
@@ -973,7 +975,7 @@ class MainWindow(QMainWindow):
                 # Construir la consulta SQL base
                 query = """INSERT INTO documento(
                     fecha, establecimiento, tipodocumento, 
-                    nrodocumento, materia, destino, firma, estado"""
+                    nrodocumento, materia, destino, firma, estado, lugar_actual"""
                 
                 values = [
                     fecha_seleccionada,
@@ -981,9 +983,10 @@ class MainWindow(QMainWindow):
                     inputs['tipodocumento'].currentText(),
                     inputs['nrodocumento'].text(),
                     inputs['materia'].text(),
-                    inputs['destino'].currentText(),  # Cambiado a currentText()
+                    inputs['destino'].currentText(),
                     inputs['firma'].text(),
-                    inputs['estado'].text()
+                    inputs['estado'].text(),
+                    "Recepción"  # Valor predeterminado agregado internamente
                 ]
                 
                 # Agregar campo de PDF si hay un archivo seleccionado
@@ -1069,11 +1072,10 @@ class MainWindow(QMainWindow):
             if not all(data.values()):
                 raise ValueError("Todos los campos deben estar llenos")
             
-            DatabaseManager.execute_query(
-                """INSERT INTO documento(
+            DatabaseManager.execute_query(                """INSERT INTO documento(
                     fecha, establecimiento, tipodocumento, 
                     nrodocumento, materia, destino, firma, estado
-                ) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)""",
+                ) VALUES(%s, %s, %s, %s, %s, %s,                         %s, %s)""",
                 (data['fecha'],
                  data['establecimiento'],
                  data['tipodocumento'],
@@ -1094,7 +1096,7 @@ class MainWindow(QMainWindow):
 
     def consultar_datos(self):
         try:
-            # Consulta SQL ordenada por ID descendente
+            # Consulta SQL actualizada para incluir lugar_actual
             query = """
                 SELECT 
                     id_documento,
@@ -1103,12 +1105,13 @@ class MainWindow(QMainWindow):
                     tipodocumento,
                     nrodocumento,
                     materia,
+                    lugar_actual,  # Nuevo campo agregado
                     destino,
                     firma,
                     estado,
                     CASE WHEN archivo_pdf IS NOT NULL THEN 1 ELSE 0 END as tiene_pdf
                 FROM documento 
-                ORDER BY id_documento DESC  # Ordenar por ID descendente
+                ORDER BY id_documento DESC
             """
             resultados = DatabaseManager.execute_query(query)
             
@@ -1116,88 +1119,68 @@ class MainWindow(QMainWindow):
             self.tree_widget.clear()
             
             # Configurar las columnas si no están configuradas
-            if self.tree_widget.columnCount() != 10:  # 9 campos + columna PDF
+            if self.tree_widget.columnCount() != 12:  # Ahora son 12 columnas (11 + Enviar)
                 self.tree_widget.setHeaderLabels([
                     "ID", "Fecha", "Establecimiento", "Tipo Doc", 
-                    "Nro Doc", "Materia", "Destino", "Firma", "Estado", "PDF"
+                    "Nro Doc", "Materia", "Lugar Actual", "Destino", 
+                    "Firma", "Estado", "PDF", "Enviar"  # Nueva columna
                 ])
             
             # Procesar cada resultado
             for registro in resultados:
-                # Crear item
                 item = QTreeWidgetItem()
                 
                 # Establecer los textos de las columnas
                 for i, campo in enumerate(['id_documento', 'fecha', 'establecimiento', 
                                         'tipodocumento', 'nrodocumento', 'materia', 
-                                        'destino', 'firma', 'estado']):
+                                        'lugar_actual', 'destino', 'firma', 'estado']):
                     item.setText(i, str(registro[campo]))
                 
                 # Añadir el item al tree widget
                 self.tree_widget.addTopLevelItem(item)
                 
-                # Crear widget contenedor para el botón PDF
-                container = QWidget()
-                layout = QHBoxLayout(container)
-                layout.setContentsMargins(0, 0, 0, 0)
-                layout.setSpacing(0)
-                
-                # Crear botón PDF con tamaño más pequeño
-                download_btn = QPushButton("📥")
-                download_btn.setFixedSize(18, 18)
-                download_btn.setToolTip("Descargar PDF")
-                
-                # Verificar si tiene PDF
-                tiene_pdf = bool(registro['tiene_pdf'])
-                download_btn.setEnabled(tiene_pdf)
-                
-                # Colores personalizados
-                COLOR_PDF = "#FF8C00"  # Naranja
-                COLOR_NO_PDF = "#808080"  # Gris
-                COLOR_HOVER = "#FF6B00"  # Naranja más oscuro para hover
-                
-                # Estilo del botón con aura
-                download_btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {COLOR_PDF if tiene_pdf else COLOR_NO_PDF};
-                        color: white;
-                        border: none;
-                        border-radius: 9px;
-                        padding: 0px;
-                        font-size: 10px;
-                        qproperty-alignment: AlignCenter;
-                        box-shadow: 0 0 5px {COLOR_PDF if tiene_pdf else COLOR_NO_PDF};  /* Aura normal */
-                    }}
-                    QPushButton:hover {{
-                        background-color: {COLOR_HOVER if tiene_pdf else COLOR_NO_PDF};
-                        box-shadow: 0 0 8px {COLOR_HOVER if tiene_pdf else COLOR_NO_PDF};  /* Aura más intensa en hover */
-                    }}
-                    QPushButton:disabled {{
-                        background-color: {COLOR_NO_PDF};
-                        color: #CCCCCC;
-                        box-shadow: 0 0 5px {COLOR_NO_PDF};  /* Aura gris */
-                    }}
-                """)
-                
-                # Conectar el botón si tiene PDF
-                if tiene_pdf:
-                    doc_id = registro['id_documento']
-                    download_btn.clicked.connect(
-                        lambda checked, x=doc_id: self.descargar_pdf(x)
-                    )
-                
-                # Añadir botón al layout y centrarlo
-                layout.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignCenter)
-                
-                # Establecer el widget en la última columna
-                self.tree_widget.setItemWidget(item, 9, container)
+                # Configurar el botón PDF en la columna PDF
+                self.setup_pdf_button(item, registro['tiene_pdf'], registro['id_documento'])
+
+                # Agregar botón de envío solo si el documento está en el departamento del usuario
+                if registro['lugar_actual'] == self.departamento:
+                    enviar_btn = QPushButton("📤")
+                    enviar_btn.setToolTip("Enviar Documento")
+                    enviar_btn.setStyleSheet(f"""
+                        QPushButton {{
+                            background-color: {COLORS['primary']};
+                            border: none;
+                            border-radius: 4px;
+                            padding: 5px;
+                            color: white;
+                            font-size: 16px;
+                        }}
+                        QPushButton:hover {{
+                            background-color: {COLORS['primary_dark']};
+                        }}
+                    """)
+                    enviar_btn.clicked.connect(lambda checked, doc=registro: self.enviar_documento(doc))
+                    self.tree_widget.setItemWidget(item, 11, enviar_btn)
+
+            # Ajustar el ancho de las columnas
+            column_widths = {
+                0: 40,   # ID
+                1: 80,   # Fecha
+                2: 120,  # Establecimiento
+                3: 80,   # Tipo Doc
+                4: 70,   # Nro Doc
+                5: 120,  # Materia
+                6: 100,  # Lugar Actual
+                7: 100,  # Destino
+                8: 60,   # Firma
+                9: 70,   # Estado
+                10: 40,  # PDF
+                11: 50   # Enviar
+            }
             
-            # Ajustar el ancho de la columna PDF específicamente
-            self.tree_widget.setColumnWidth(9, 30)
-            
-            # Ajustar las demás columnas
-            for i in range(9):
-                self.tree_widget.resizeColumnToContents(i)
+            # Aplicar los anchos de columna
+            for col, width in column_widths.items():
+                self.tree_widget.setColumnWidth(col, width)
             
             # Mostrar mensaje de éxito
             QMessageBox.information(
@@ -1211,247 +1194,6 @@ class MainWindow(QMainWindow):
                 self,
                 "Error",
                 f"Error al consultar datos: {str(e)}"
-            )
-
-    def _get_pdf_button_style(self, enabled):
-        """Helper para el estilo del botón PDF"""
-        return f"""
-            QPushButton {{
-                background-color: {COLORS['primary'] if enabled else COLORS['surface']};
-                color: white;
-                border: none;
-                padding: 5px;
-                border-radius: 3px;
-                min-width: 30px;
-                max-width: 30px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary_dark'] if enabled else COLORS['surface']};
-            }}
-            QPushButton:disabled {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text_secondary']};
-            }}
-        """
-
-    def descargar_pdf(self, id_documento):
-        """Función para descargar el PDF asociado a un documento"""
-        try:
-            # Obtener el PDF de la base de datos
-            result = DatabaseManager.execute_query(
-                "SELECT archivo_pdf FROM documento WHERE id_documento = %s",
-                (id_documento,)
-            )
-            
-            if result and result[0]['archivo_pdf']:
-                # Abrir diálogo para seleccionar ubicación de guardado
-                file_name, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Guardar PDF",
-                    f"documento_{id_documento}.pdf",
-                    "PDF Files (*.pdf)"
-                )
-                
-                if file_name:
-                    # Guardar el PDF en el sistema de archivos
-                    with open(file_name, 'wb') as file:
-                        file.write(result[0]['archivo_pdf'])
-                    
-                    self.mostrar_mensaje(
-                        "Éxito",
-                        f"PDF guardado exitosamente en {file_name}"
-                    )
-            else:
-                self.mostrar_mensaje(
-                    "Error",
-                    "No hay PDF asociado a este documento",
-                    QMessageBox.Icon.Warning
-                )
-                
-        except Exception as e:
-            self.mostrar_mensaje(
-                "Error",
-                f"Error al descargar el PDF: {str(e)}",
-                QMessageBox.Icon.Critical
-            )
-
-    def mostrar_mensaje(self, titulo, mensaje, icono=QMessageBox.Icon.Information):
-        msg = QMessageBox(self)
-        msg.setWindowTitle(titulo)
-        msg.setText(mensaje)
-        msg.setIcon(icono)
-        msg.setStyleSheet("")  # Eliminar cualquier estilo personalizado
-        msg.exec()
-
-    def eliminar_datos(self):
-        selected_items = self.tree_widget.selectedItems()
-        if not selected_items:
-            self.mostrar_mensaje("Error", "Por favor, seleccione un registro para eliminar", QMessageBox.Icon.Warning)
-            return
-
-        item = selected_items[0]
-        id_to_delete = item.text(0)  # Asumimos que el ID está en la primera columna
-
-        confirm = QMessageBox.question(
-            self, 
-            "Confirmar eliminación", 
-            f"¿Está seguro de que desea eliminar el registro con ID {id_to_delete}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if confirm == QMessageBox.StandardButton.Yes:
-            try:
-                # Corregida la consulta para usar id_documento en lugar de id
-                DatabaseManager.execute_query(
-                    "DELETE FROM documento WHERE id_documento = %s", 
-                    (id_to_delete,)
-                )
-                self.mostrar_mensaje("Éxito", f"Registro con ID {id_to_delete} eliminado exitosamente")
-                self.consultar_datos()  # Actualizamos la vista después de eliminar
-            except Exception as e:
-                self.mostrar_mensaje(
-                    "Error", 
-                    f"No se pudo eliminar el registro: {str(e)}", 
-                    QMessageBox.Icon.Critical
-                )
-
-    def modificar_datos(self):
-        try:
-            # Verificar si hay un item seleccionado
-            selected_items = self.tree_widget.selectedItems()
-            if not selected_items:
-                self.mostrar_mensaje(
-                    "Error", 
-                    "Por favor seleccione un documento para modificar",
-                    QMessageBox.Icon.Warning
-                )
-                return
-
-            # Obtener datos del item seleccionado
-            item = selected_items[0]
-            id_documento = item.text(0)
-            
-            # Crear y configurar el diálogo
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Modificar Documento")
-            dialog.setFixedWidth(500)
-            
-            # Layout principal
-            layout = QVBoxLayout(dialog)
-            form_layout = QFormLayout()
-            
-            # Obtener datos actuales del documento
-            query = """
-                SELECT fecha, establecimiento, tipodocumento, nrodocumento, 
-                       materia, destino, firma, estado 
-                FROM documento 
-                WHERE id_documento = %s
-            """
-            resultado = DatabaseManager.execute_query(query, (id_documento,))[0]
-            
-            # Crear campos de entrada con los valores actuales
-            inputs = {}
-            fecha_input = QCalendarWidget()
-            fecha_input.setSelectedDate(QDate.fromString(str(resultado['fecha']), "yyyy-MM-dd"))
-            form_layout.addRow("Fecha:", fecha_input)
-            
-            # Campos de texto y ComboBox
-            campos = [
-                ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
-                ("tipodocumento", QComboBox(), [
-                    "Oficio", "Resolucion", "Ordinario", "Memo", 
-                    "Decreto", "Factura", "Carta"
-                ]),
-                ("nrodocumento", QLineEdit(), None),
-                ("materia", QLineEdit(), None),
-                ("destino", QComboBox(), DatabaseManager.get_departamentos()),
-                ("firma", QLineEdit(), None),
-                ("estado", QLineEdit(), None)
-            ]
-            
-            # Configurar cada campo
-            for campo, widget, opciones in campos:
-                if isinstance(widget, QComboBox):
-                    widget.addItems(opciones)
-                    widget.setCurrentText(str(resultado[campo]))
-                else:
-                    widget.setText(str(resultado[campo]))
-                inputs[campo] = widget
-                form_layout.addRow(f"{campo.capitalize()}:", widget)
-            
-            # Botones de acción
-            button_box = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Save | 
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            
-            def guardar_cambios():
-                try:
-                    # Construir query de actualización
-                    query = """
-                        UPDATE documento 
-                        SET fecha = %s, establecimiento = %s, tipodocumento = %s,
-                            nrodocumento = %s, materia = %s, destino = %s,
-                            firma = %s, estado = %s
-                        WHERE id_documento = %s
-                    """
-                    
-                    # Obtener valores actualizados
-                    valores = [
-                        fecha_input.selectedDate().toString("yyyy-MM-dd"),
-                        inputs['establecimiento'].currentText(),
-                        inputs['tipodocumento'].currentText(),
-                        inputs['nrodocumento'].text(),
-                        inputs['materia'].text(),
-                        inputs['destino'].currentText(),
-                        inputs['firma'].text(),
-                        inputs['estado'].text(),
-                        id_documento
-                    ]
-                    
-                    # Ejecutar actualización
-                    DatabaseManager.execute_query(query, valores)
-                    self.mostrar_mensaje("Éxito", "Documento actualizado correctamente")
-                    dialog.accept()
-                    self.consultar_datos()  # Actualizar vista
-                    
-                except Exception as e:
-                    self.mostrar_mensaje(
-                        "Error",
-                        f"No se pudo actualizar el documento: {str(e)}",
-                        QMessageBox.Icon.Critical
-                    )
-            
-            button_box.accepted.connect(guardar_cambios)
-            button_box.rejected.connect(dialog.reject)
-            
-            # Agregar layouts al diálogo
-            layout.addLayout(form_layout)
-            layout.addWidget(button_box)
-            
-            # Aplicar estilos
-            dialog.setStyleSheet(f"""
-                QDialog {{
-                    background-color: {COLORS['background']};
-                    color: {COLORS['text']};
-                }}
-                QLineEdit, QComboBox {{
-                    background-color: {COLORS['surface']};
-                    color: {COLORS['text']};
-                    padding: 8px;
-                    border: 1px solid {COLORS['primary']};
-                    border-radius: 4px;
-                    min-width: 200px;
-                }}
-            """)
-            
-            dialog.exec()
-            
-        except Exception as e:
-            self.mostrar_mensaje(
-                "Error",
-                f"Error al abrir el formulario de modificación: {str(e)}",
-                QMessageBox.Icon.Critical
             )
 
     def actualizar_datos_sin_progreso(self):
@@ -1531,7 +1273,7 @@ class MainWindow(QMainWindow):
             )
         
         layout.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignCenter)
-        self.tree_widget.setItemWidget(item, 9, container)
+        self.tree_widget.setItemWidget(item, 10, container)  # Cambiado de 9 a 10 para la columna PDF
 
     def agregar_registro_al_tree(self, registro, parent=None):
         """Método auxiliar para agregar un registro al TreeWidget"""
@@ -1587,7 +1329,8 @@ class MainWindow(QMainWindow):
         if tiene_pdf:
             doc_id = registro['id_documento']
             download_btn.clicked.connect(
-                lambda checked, x=doc_id: self.descargar_pdf(x))
+                lambda checked, x=doc_id: self.descargar_pdf(x)
+            )
         
         layout.addWidget(download_btn, 0, Qt.AlignmentFlag.AlignCenter)
         
@@ -1610,6 +1353,7 @@ class MainWindow(QMainWindow):
             # Actualizar las credenciales del usuario
             self.email = login.email_input.text()  # Cambiado de username a email
             self.user_role = login.get_user_role()
+            self.departamento = login.get_user_departamento()  # Obtener el departamento
             
             # Actualizar la información del usuario
             self.setup_user_info()
@@ -1684,6 +1428,455 @@ class MainWindow(QMainWindow):
         for i in range(self.tree_widget.topLevelItemCount()):
             self.tree_widget.topLevelItem(i).setHidden(False)
 
+    def eliminar_datos(self):
+        try:
+            # Verificar si hay un item seleccionado
+            selected_items = self.tree_widget.selectedItems()
+            if not selected_items:
+                self.mostrar_mensaje(
+                    "Error",
+                    "Por favor seleccione un documento para eliminar",
+                    QMessageBox.Icon.Warning
+                )
+                return
+
+            # Obtener el ID del documento seleccionado
+            id_documento = selected_items[0].text(0)
+
+            # Confirmar eliminación
+            confirmacion = QMessageBox.question(
+                self,
+                "Confirmar Eliminación",
+                "¿Está seguro de que desea eliminar este documento?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if confirmacion == QMessageBox.StandardButton.Yes:
+                # Eliminar el documento
+                query = "DELETE FROM documento WHERE id_documento = %s"
+                DatabaseManager.execute_query(query, (id_documento,))
+
+                self.mostrar_mensaje(
+                    "Éxito",
+                    "Documento eliminado correctamente",
+                    QMessageBox.Icon.Information
+                )
+
+                # Actualizar la vista
+                self.consultar_datos()
+
+        except Exception as e:
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al eliminar documento: {str(e)}",
+                QMessageBox.Icon.Critical
+            )
+
+    def modificar_datos(self):
+        try:
+            # Verificar si hay un item seleccionado
+            selected_items = self.tree_widget.selectedItems()
+            if not selected_items:
+                self.mostrar_mensaje(
+                    "Error",
+                    "Por favor seleccione un documento para modificar",
+                    QMessageBox.Icon.Warning
+                )
+                return
+
+            # Obtener el ID del documento seleccionado
+            id_documento = selected_items[0].text(0)
+
+            # Crear diálogo de modificación
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Modificar Documento")
+            dialog.setFixedWidth(400)
+            layout = QVBoxLayout(dialog)
+
+            # Obtener datos actuales del documento
+            query = """
+                SELECT fecha, establecimiento, tipodocumento, nrodocumento, 
+                       materia, destino, firma, estado, lugar_actual
+                FROM documento 
+                WHERE id_documento = %s
+            """
+            resultado = DatabaseManager.execute_query(query, (id_documento,))[0]
+
+            # Crear formulario
+            form_layout = QFormLayout()
+            inputs = {}
+
+            # Fecha
+            fecha_input = QCalendarWidget()
+            fecha_input.setSelectedDate(QDate.fromString(str(resultado['fecha']), "yyyy-MM-dd"))
+            form_layout.addRow("Fecha:", fecha_input)
+
+            # Campos de texto y sus valores actuales
+            campos = [
+                ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
+                ("tipodocumento", QComboBox(), [
+                    "Oficio", "Resolucion", "Ordinario", "Memo", 
+                    "Decreto", "Factura", "Carta"
+                ]),
+                ("nrodocumento", QLineEdit(), None),
+                ("materia", QLineEdit(), None),
+                ("destino", QComboBox(), DatabaseManager.get_departamentos()),
+                ("firma", QLineEdit(), None),
+                ("estado", QLineEdit(), None)
+            ]
+
+            for campo, widget, opciones in campos:
+                if isinstance(widget, QComboBox):
+                    if opciones:
+                        widget.addItems(opciones)
+                    widget.setCurrentText(str(resultado[campo]))
+                else:
+                    widget.setText(str(resultado[campo]))
+                inputs[campo] = widget
+                form_layout.addRow(f"{campo.capitalize()}:", widget)
+
+            layout.addLayout(form_layout)
+
+            # Botones
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Save | 
+                QDialogButtonBox.StandardButton.Cancel
+            )
+
+            def guardar_modificacion():
+                try:
+                    # Construir la consulta de actualización
+                    query = """
+                        UPDATE documento 
+                        SET fecha = %s, establecimiento = %s, tipodocumento = %s,
+                            nrodocumento = %s, materia = %s, destino = %s,
+                            firma = %s, estado = %s
+                        WHERE id_documento = %s
+                    """
+                    
+                    valores = [
+                        fecha_input.selectedDate().toString("yyyy-MM-dd"),
+                        inputs['establecimiento'].currentText(),
+                        inputs['tipodocumento'].currentText(),
+                        inputs['nrodocumento'].text(),
+                        inputs['materia'].text(),
+                        inputs['destino'].currentText(),
+                        inputs['firma'].text(),
+                        inputs['estado'].text(),
+                        id_documento
+                    ]
+
+                    DatabaseManager.execute_query(query, valores)
+
+                    self.mostrar_mensaje(
+                        "Éxito",
+                        "Documento modificado correctamente",
+                        QMessageBox.Icon.Information
+                    )
+
+                    dialog.accept()
+                    self.consultar_datos()
+
+                except Exception as e:
+                    self.mostrar_mensaje(
+                        "Error",
+                        f"Error al modificar documento: {str(e)}",
+                        QMessageBox.Icon.Critical
+                    )
+
+            button_box.accepted.connect(guardar_modificacion)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+
+            # Aplicar estilos
+            dialog.setStyleSheet(f"""
+                QDialog {{
+                    background-color: {COLORS['background']};
+                }}
+                QLabel {{
+                    color: {COLORS['text']};
+                }}
+                QLineEdit, QComboBox {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    padding: 8px;
+                    border: 1px solid {COLORS['primary']};
+                    border-radius: 4px;
+                }}
+            """)
+
+            dialog.exec()
+
+        except Exception as e:
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al abrir formulario de modificación: {str(e)}",
+                QMessageBox.Icon.Critical
+            )
+
+    def mostrar_mensaje(self, titulo, mensaje, icono=QMessageBox.Icon.Information):
+        """Muestra un mensaje en una ventana de diálogo"""
+        msg = QMessageBox(self)
+        msg.setWindowTitle(titulo)
+        msg.setText(mensaje)
+        msg.setIcon(icono)
+        msg.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: {COLORS['background']};
+            }}
+            QMessageBox QLabel {{
+                color: {COLORS['text']};
+            }}
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: white;
+                padding: 6px 20px;
+                border: none;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_light']};
+            }}
+        """)
+        return msg.exec()
+
+    def enviar_documento(self, documento):
+        try:
+            # Verificar que el documento esté en el departamento actual
+            if documento['lugar_actual'] != self.departamento:
+                self.mostrar_mensaje(
+                    "Error",
+                    "Solo puedes enviar documentos que estén en tu departamento actual",
+                    QMessageBox.Icon.Warning
+                )
+                return
+
+            # Crear diálogo de confirmación
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Enviar Documento")
+            dialog.setFixedWidth(500)
+            layout = QVBoxLayout(dialog)
+
+            # Título
+            title_label = QLabel("Información del Documento")
+            title_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {COLORS['text']};
+                    font-size: 16px;
+                    font-weight: bold;
+                    padding: 10px;
+                }}
+            """)
+            layout.addWidget(title_label)
+
+            # Crear un widget para la información detallada
+            info_widget = QWidget()
+            info_layout = QFormLayout(info_widget)
+            info_widget.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {COLORS['surface']};
+                    border-radius: 8px;
+                    padding: 15px;
+                }}
+                QLabel {{
+                    color: {COLORS['text']};
+                    padding: 5px;
+                }}
+            """)
+
+            # Campos de información
+            campos = [
+                ("ID:", str(documento['id_documento'])),
+                ("Tipo de Documento:", documento['tipodocumento']),
+                ("Número:", documento['nrodocumento']),
+                ("Materia:", documento.get('materia', 'No especificada')),
+                ("Establecimiento:", documento.get('establecimiento', 'No especificado')),
+                ("Ubicación Actual:", documento['lugar_actual']),
+                ("Firma:", documento.get('firma', 'No especificada')),
+                ("Estado:", documento.get('estado', 'No especificado'))
+            ]
+
+            for label, valor in campos:
+                label_widget = QLabel(label)
+                valor_widget = QLabel(valor)
+                valor_widget.setStyleSheet(f"color: {COLORS['text_secondary']};")
+                info_layout.addRow(label_widget, valor_widget)
+
+            layout.addWidget(info_widget)
+
+            # Selector de departamento destino
+            destino_widget = QWidget()
+            destino_layout = QFormLayout(destino_widget)
+            destino_widget.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {COLORS['surface']};
+                    border-radius: 8px;
+                    padding: 15px;
+                    margin-top: 10px;
+                }}
+            """)
+
+            # Obtener lista de departamentos
+            departamentos = DatabaseManager.get_departamentos()
+            departamento_combo = QComboBox()
+            departamento_combo.addItems(departamentos)
+            departamento_combo.setCurrentText(documento['destino'] if 'destino' in documento else '')
+            departamento_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {COLORS['background']};
+                    color: {COLORS['text']};
+                    padding: 8px;
+                    border: 1px solid {COLORS['primary']};
+                    border-radius: 4px;
+                }}
+                QComboBox:hover {{
+                    border: 1px solid {COLORS['primary_light']};
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                }}
+                QComboBox::down-arrow {{
+                    image: url(down_arrow.png);
+                    width: 12px;
+                    height: 12px;
+                }}
+            """)
+
+            destino_layout.addRow("Departamento Destino:", departamento_combo)
+            layout.addWidget(destino_widget)
+
+            # Botones
+            button_container = QWidget()
+            button_layout = QHBoxLayout(button_container)
+            
+            # Botón Enviar
+            enviar_btn = QPushButton("Enviar")
+            enviar_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['primary']};
+                    color: {COLORS['text']};
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    min-width: 100px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['primary_light']};
+                }}
+            """)
+            enviar_btn.clicked.connect(lambda: self.confirmar_envio(documento, departamento_combo, dialog))  # Pasamos el combo box completo
+            
+            # Botón Cancelar
+            cancelar_btn = QPushButton("Cancelar")
+            cancelar_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    border: 2px solid {COLORS['error']};
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    min-width: 100px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['error']};
+                }}
+            """)
+            cancelar_btn.clicked.connect(dialog.reject)
+            
+            button_layout.addWidget(enviar_btn)
+            button_layout.addWidget(cancelar_btn)
+            layout.addWidget(button_container)
+
+            dialog.setStyleSheet(f"""
+                QDialog {{
+                    background-color: {COLORS['background']};
+                }}
+            """)
+            
+            dialog.exec()
+
+        except Exception as e:
+            self.mostrar_mensaje("Error", f"Error al enviar documento: {str(e)}")
+
+    def confirmar_envio(self, documento, departamento_combo, dialog):
+        try:
+            # Obtener el departamento seleccionado del combo box
+            departamento_destino = departamento_combo.currentText()
+            
+            # Primero verificamos si existe una solicitud pendiente para este documento
+            check_query = """
+                SELECT id_solicitud 
+                FROM solicitudes_documento 
+                WHERE id_documento = %s 
+                AND estado = 'pendiente'
+            """
+            solicitud_existente = DatabaseManager.execute_query(check_query, (documento['id_documento'],))
+
+            if solicitud_existente:
+                # Si existe una solicitud pendiente, actualizamos el destino
+                update_query = """
+                    UPDATE solicitudes_documento 
+                    SET departamento_destino = %s,
+                        fecha_solicitud = CURRENT_TIMESTAMP
+                    WHERE id_documento = %s 
+                    AND estado = 'pendiente'
+                """
+                values = (departamento_destino, documento['id_documento'])
+                DatabaseManager.execute_query(update_query, values)
+                
+                # Actualizar el destino en la tabla documento
+                update_doc_query = """
+                    UPDATE documento 
+                    SET destino = %s 
+                    WHERE id_documento = %s
+                """
+                DatabaseManager.execute_query(update_doc_query, values)
+                
+                mensaje = "Solicitud de envío actualizada correctamente"
+            else:
+                # Si no existe, creamos una nueva solicitud
+                insert_query = """
+                    INSERT INTO solicitudes_documento 
+                    (id_documento, departamento_origen, departamento_destino) 
+                    VALUES (%s, %s, %s)
+                """
+                values = (
+                    documento['id_documento'],
+                    documento['lugar_actual'],
+                    departamento_destino
+                )
+                DatabaseManager.execute_query(insert_query, values)
+                
+                # Actualizar el destino en la tabla documento
+                update_doc_query = """
+                    UPDATE documento 
+                    SET destino = %s 
+                    WHERE id_documento = %s
+                """
+                doc_values = (departamento_destino, documento['id_documento'])
+                DatabaseManager.execute_query(update_doc_query, doc_values)
+                
+                mensaje = "Solicitud de envío creada correctamente"
+            
+            self.mostrar_mensaje(
+                "Éxito",
+                mensaje,
+                QMessageBox.Icon.Information
+            )
+            
+            dialog.accept()
+            self.consultar_datos()  # Actualizar vista
+            
+        except Exception as e:
+            self.mostrar_mensaje(
+                "Error",
+                f"Error al crear solicitud: {str(e)}",
+                QMessageBox.Icon.Critical
+            )
+
 import json
 import os
 
@@ -1739,6 +1932,7 @@ class LoginDialog(QDialog):
         self.setFixedWidth(550)
         self.setFixedHeight(650)
         self.user_role = None
+        self.user_departamento = None  # Nuevo atributo para el departamento
         self.setup_ui()
         
         # Cargar credenciales guardadas
@@ -1922,7 +2116,7 @@ class LoginDialog(QDialog):
                     "Los campos de email y contraseña son obligatorios."
                 )
                 return
-                
+
             # Validar formato de email básico
             if '@' not in email or '.' not in email:
                 self.show_custom_error(
@@ -1932,9 +2126,10 @@ class LoginDialog(QDialog):
                 )
                 return
                 
-            success, role = DatabaseManager.validate_login(email, password)
+            success, role, departamento = DatabaseManager.validate_login(email, password)
             if success:
                 self.user_role = role
+                self.user_departamento = departamento  # Guardar el departamento
                 
                 # Guardar credenciales si el checkbox está marcado
                 if self.remember_checkbox.isChecked():
@@ -2040,6 +2235,10 @@ class LoginDialog(QDialog):
 
     def get_user_role(self):
         return self.user_role
+
+    def get_user_departamento(self):  # Nuevo método
+        """Retorna el departamento del usuario"""
+        return self.user_departamento
 
     def toggle_password_visibility(self):
         if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
@@ -2215,7 +2414,7 @@ class RegisterDialog(QDialog):
         # Ajustar espaciado antes de los botones (reducido para subirlos)
         main_layout.addSpacing(10)  # Reducido el espaciado antes de los botones
 
-        # Botones
+            # Botones
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(15)
         buttons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2525,11 +2724,11 @@ class RegisterDialog(QDialog):
 
         # Estilo general del diálogo
         error_dialog.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
-            }}
-        """)
-
+                QDialog {{
+                    background-color: {COLORS['background']};
+                }}
+            """)
+            
         error_dialog.exec()
 
     def show_custom_success(self, title, message, detail):
@@ -2950,7 +3149,7 @@ class AdminPanel(QDialog):
             self.user_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
             self.user_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             self.user_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-            
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
 
@@ -3178,9 +3377,10 @@ def main():
     if login.exec() == QDialog.DialogCode.Accepted:
         user_role = login.get_user_role()
         user_email = login.get_user_email()
+        user_departamento = login.get_user_departamento()  # Obtener el departamento
         
         # Crear la ventana principal pasando email en lugar de username
-        window = MainWindow(email=user_email, user_role=user_role)  # Corregido aquí
+        window = MainWindow(email=user_email, user_role=user_role, departamento=user_departamento)  # Corregido aquí
         
         # Configurar visibilidad de botones según el rol del usuario
         for button in window.findChildren(QToolButton):
@@ -3201,5 +3401,229 @@ def main():
         sys.exit(app.exec())
     else:
         sys.exit()
+
+def enviar_documento(self, documento):
+    try:
+        # Verificar que el documento esté en el departamento actual
+        if documento['lugar_actual'] != self.departamento:
+            self.mostrar_mensaje(
+                "Error",
+                "Solo puedes enviar documentos que estén en tu departamento actual",
+                QMessageBox.Icon.Warning
+            )
+            return
+
+        # Crear diálogo de confirmación
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Enviar Documento")
+        dialog.setFixedWidth(500)
+        layout = QVBoxLayout(dialog)
+
+        # Título
+        title_label = QLabel("Información del Documento")
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 16px;
+                font-weight: bold;
+                padding: 10px;
+            }}
+        """)
+        layout.addWidget(title_label)
+
+        # Crear un widget para la información detallada
+        info_widget = QWidget()
+        info_layout = QFormLayout(info_widget)
+        info_widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS['surface']};
+                border-radius: 8px;
+                padding: 15px;
+            }}
+            QLabel {{
+                color: {COLORS['text']};
+                padding: 5px;
+            }}
+        """)
+
+        # Campos de información
+        campos = [
+            ("ID:", str(documento['id_documento'])),
+            ("Tipo de Documento:", documento['tipodocumento']),
+            ("Número:", documento['nrodocumento']),
+            ("Materia:", documento.get('materia', 'No especificada')),
+            ("Establecimiento:", documento.get('establecimiento', 'No especificado')),
+            ("Ubicación Actual:", documento['lugar_actual']),
+            ("Firma:", documento.get('firma', 'No especificada')),
+            ("Estado:", documento.get('estado', 'No especificado'))
+        ]
+
+        for label, valor in campos:
+            label_widget = QLabel(label)
+            valor_widget = QLabel(valor)
+            valor_widget.setStyleSheet(f"color: {COLORS['text_secondary']};")
+            info_layout.addRow(label_widget, valor_widget)
+
+        layout.addWidget(info_widget)
+
+        # Selector de departamento destino
+        destino_widget = QWidget()
+        destino_layout = QFormLayout(destino_widget)
+        destino_widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS['surface']};
+                border-radius: 8px;
+                padding: 15px;
+                margin-top: 10px;
+            }}
+        """)
+
+        # Obtener lista de departamentos
+        departamentos = DatabaseManager.get_departamentos()
+        departamento_combo = QComboBox()
+        departamento_combo.addItems(departamentos)
+        departamento_combo.setCurrentText(documento['destino'] if 'destino' in documento else '')
+        departamento_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 1px solid {COLORS['primary']};
+                border-radius: 4px;
+            }}
+            QComboBox:hover {{
+                border: 1px solid {COLORS['primary_light']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }}
+        """)
+
+        destino_layout.addRow("Departamento Destino:", departamento_combo)
+        layout.addWidget(destino_widget)
+
+        # Botones
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        
+        # Botón Enviar
+        enviar_btn = QPushButton("Enviar")
+        enviar_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_light']};
+            }}
+        """)
+        enviar_btn.clicked.connect(lambda: self.confirmar_envio(documento, dialog))  # Pasamos el combo box completo
+        
+        # Botón Cancelar
+        cancelar_btn = QPushButton("Cancelar")
+        cancelar_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 2px solid {COLORS['error']};
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['error']};
+            }}
+        """)
+        cancelar_btn.clicked.connect(dialog.reject)
+        
+        button_layout.addWidget(enviar_btn)
+        button_layout.addWidget(cancelar_btn)
+        layout.addWidget(button_container)
+
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+        
+        dialog.exec()
+
+    except Exception as e:
+        self.mostrar_mensaje("Error", f"Error al enviar documento: {str(e)}")
+
+def confirmar_envio(self, documento, dialog):
+    try:
+        # Insertar solicitud en la base de datos
+        query = """
+            INSERT INTO solicitudes_documento 
+            (id_documento, departamento_origen, departamento_destino) 
+            VALUES (%s, %s, %s)
+        """
+        values = (
+            documento['id_documento'],
+            documento['lugar_actual'],
+            documento['destino']
+        )
+        
+        DatabaseManager.execute_query(query, values)
+        
+        self.mostrar_mensaje(
+            "Éxito",
+            "Solicitud de envío creada correctamente",
+            QMessageBox.Icon.Information
+        )
+        
+        dialog.accept()
+        self.consultar_datos()  # Actualizar vista
+        
+    except Exception as e:
+        self.mostrar_mensaje(
+            "Error",
+            f"Error al crear solicitud: {str(e)}",
+            QMessageBox.Icon.Critical
+        )
+
+def confirmar_envio(self, documento, dialog):
+    try:
+        # Insertar solicitud en la base de datos
+        query = """
+            INSERT INTO solicitudes_documento 
+            (id_documento, departamento_origen, departamento_destino) 
+            VALUES (%s, %s, %s)
+        """
+        values = (
+            documento['id_documento'],
+            documento['lugar_actual'],
+            documento['destino']
+        )
+        
+        DatabaseManager.execute_query(query, values)
+        
+        self.mostrar_mensaje(
+            "Éxito",
+            "Solicitud de envío creada correctamente",
+            QMessageBox.Icon.Information
+        )
+        
+        dialog.accept()
+        self.consultar_datos()  # Actualizar vista
+        
+    except Exception as e:
+        self.mostrar_mensaje(
+            "Error",
+            f"Error al crear solicitud: {str(e)}",
+            QMessageBox.Icon.Critical
+        )
 if __name__ == "__main__":
     main()
