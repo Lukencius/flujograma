@@ -1099,6 +1099,17 @@ class MainWindow(QMainWindow):
 
     def consultar_datos(self):
         try:
+            # Limpiar datos anteriores
+            self.tree_widget.clear()
+            
+            # Cerrar conexión existente si hay una
+            if hasattr(DatabaseManager, '_connection_pool') and DatabaseManager._connection_pool:
+                DatabaseManager._connection_pool.close()
+                DatabaseManager._connection_pool = None
+                
+            # Obtener nueva conexión
+            connection = DatabaseManager.get_connection()
+            
             # Consulta SQL actualizada para incluir lugar_actual
             query = """
                 SELECT 
@@ -1108,7 +1119,7 @@ class MainWindow(QMainWindow):
                     tipodocumento,
                     nrodocumento,
                     materia,
-                    lugar_actual,  # Nuevo campo agregado
+                    lugar_actual,
                     destino,
                     firma,
                     estado,
@@ -1118,15 +1129,12 @@ class MainWindow(QMainWindow):
             """
             resultados = DatabaseManager.execute_query(query)
             
-            # Limpiar el tree widget
-            self.tree_widget.clear()
-            
             # Configurar las columnas si no están configuradas
             if self.tree_widget.columnCount() != 12:  # Ahora son 12 columnas (11 + Enviar)
                 self.tree_widget.setHeaderLabels([
                     "ID", "Fecha", "Establecimiento", "Tipo Doc", 
                     "Nro Doc", "Materia", "Lugar Actual", "Destino", 
-                    "Firma", "Estado", "PDF", "Enviar"  # Nueva columna
+                    "Firma", "Estado", "PDF", "Enviar"
                 ])
             
             # Procesar cada resultado
@@ -1897,6 +1905,14 @@ class MainWindow(QMainWindow):
 
     def recibir_documento(self):
         try:
+            # Cerrar conexión existente si hay una
+            if hasattr(DatabaseManager, '_connection_pool') and DatabaseManager._connection_pool:
+                DatabaseManager._connection_pool.close()
+                DatabaseManager._connection_pool = None
+                
+            # Obtener nueva conexión
+            connection = DatabaseManager.get_connection()
+            
             query = """
                 SELECT s.*, d.tipodocumento, d.nrodocumento, d.materia, 
                        d.establecimiento, d.firma, d.estado
@@ -2191,7 +2207,7 @@ class LoginDialog(QDialog):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
 
-        # Título
+        # T��tulo
         title_label = QLabel("Bienvenido")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
