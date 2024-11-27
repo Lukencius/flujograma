@@ -1717,11 +1717,22 @@ class MainWindow(QMainWindow):
                 }}
             """)
 
-            # Obtener lista de departamentos
+            # Obtener lista actualizada de departamentos
             departamentos = DatabaseManager.get_departamentos()
             departamento_combo = QComboBox()
-            departamento_combo.addItems(departamentos)
-            departamento_combo.setCurrentText(documento['destino'] if 'destino' in documento else '')
+            if departamentos:  # Verificar que la lista no esté vacía
+                departamento_combo.addItems(departamentos)
+                # Establecer el departamento actual como valor predeterminado si existe
+                if 'destino' in documento and documento['destino'] in departamentos:
+                    departamento_combo.setCurrentText(documento['destino'])
+            else:
+                self.mostrar_mensaje(
+                    "Error",
+                    "No se pudieron cargar los departamentos",
+                    QMessageBox.Icon.Warning
+                )
+                return
+
             departamento_combo.setStyleSheet(f"""
                 QComboBox {{
                     background-color: {COLORS['background']};
@@ -1740,6 +1751,13 @@ class MainWindow(QMainWindow):
                     image: url(down_arrow.png);
                     width: 12px;
                     height: 12px;
+                }}
+                QComboBox QAbstractItemView {{
+                    background-color: {COLORS['background']};
+                    color: {COLORS['text']};
+                    selection-background-color: {COLORS['primary']};
+                    selection-color: white;
+                    border: 1px solid {COLORS['primary']};
                 }}
             """)
 
