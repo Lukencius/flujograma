@@ -406,7 +406,7 @@ class MainWindow(QMainWindow):
             ("Eliminar Documento", self.eliminar_datos),
             ("Modificar Documento", self.modificar_datos),
             ("Administrar", self.show_admin_panel),
-            ("📥 Recibir Documentos", self.recibir_documento)  # Nuevo botón
+            ("📬 Recibir Documentos", self.recibir_documento)  # Cambiado a 📬 (buzón abierto con bandera arriba)
         ]
 
         for text, slot in self.buttons_data:
@@ -1147,7 +1147,7 @@ class MainWindow(QMainWindow):
 
                 # Agregar botón de envío solo si el documento está en el departamento del usuario
                 if registro['lugar_actual'] == self.departamento:
-                    enviar_btn = QPushButton("📤")
+                    enviar_btn = QPushButton("📨")
                     enviar_btn.setToolTip("Enviar Documento")
                     enviar_btn.setStyleSheet(f"""
                         QPushButton {{
@@ -1373,10 +1373,10 @@ class MainWindow(QMainWindow):
         role_permissions = {
             "admin": ["Agregar Nuevo Documento", "Consultar Documento", 
                       "Eliminar Documento", "Modificar Documento", 
-                      "Administrar", "📥 Recibir Documentos"],
+                      "Administrar", "📬 Recibir Documentos"],
             "recepcionista": ["Agregar Nuevo Documento", "Consultar Documento",
-                              "📥 Recibir Documentos"],
-            "usuario": ["Consultar Documento", "📥 Recibir Documentos"]
+                              "📬 Recibir Documentos"],
+            "usuario": ["Consultar Documento", "📬 Recibir Documentos"]
         }
         
         allowed_buttons = role_permissions.get(self.user_role.lower(), [])
