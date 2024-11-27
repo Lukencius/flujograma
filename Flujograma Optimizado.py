@@ -359,7 +359,7 @@ class MainWindow(QMainWindow):
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(logo_label)
@@ -370,34 +370,34 @@ class MainWindow(QMainWindow):
         title_layout.setSpacing(5)
         title_layout.setContentsMargins(0, 0, 0, 15)  # Añadido margen inferior
 
-        # Título sin fondo
-        title_label = QLabel("Corporación de Isla de Maipo")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                font-size: 18px;
-                font-weight: bold;
-                letter-spacing: 0.5px;
-                padding: 5px 0px;
-            }
-        """)
-        title_layout.addWidget(title_label)
+        # # Título sin fondo
+        # title_label = QLabel("Corporación de Isla de Maipo")
+        # title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # title_label.setStyleSheet("""
+        #     QLabel {
+        #         color: white;
+        #         font-size: 15px;
+        #         font-weight: bold;
+        #         letter-spacing: 0.5px;
+        #         padding: 5px 0px;
+        #     }
+        # """)
+        # title_layout.addWidget(title_label)
 
         # Línea separadora sutil
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("""
-            QFrame {
-                border: none;
-                background-color: rgba(30, 136, 229, 0.5);
-                max-height: 1px;
-                margin: 0px 40px;
-            }
-        """)
-        title_layout.addWidget(line)
+        # line = QFrame()
+        # line.setFrameShape(QFrame.Shape.HLine)
+        # line.setStyleSheet("""
+        #     QFrame {
+        #         border: none;
+        #         background-color: rgba(30, 136, 229, 0.5);
+        #         max-height: 1px;
+        #         margin: 0px 40px;
+        #     }
+        # """)
+        # title_layout.addWidget(line)
         
-        left_layout.addWidget(title_container)
+        # left_layout.addWidget(title_container)
 
         # Botones
         self.buttons_data = [
