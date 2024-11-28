@@ -1480,6 +1480,10 @@ class MainWindow(QMainWindow):
                 f"Error al eliminar documento: {str(e)}",
                 QMessageBox.Icon.Critical
             )
+            if hasattr(DatabaseManager, '_connection_pool') and DatabaseManager._connection_pool:
+                DatabaseManager._connection_pool.close()
+                DatabaseManager._connection_pool = None
+            
 
     def modificar_datos(self):
         try:
@@ -1529,7 +1533,6 @@ class MainWindow(QMainWindow):
                 ]),
                 ("nrodocumento", QLineEdit(), None),
                 ("materia", QLineEdit(), None),
-                ("destino", QComboBox(), DatabaseManager.get_departamentos()),
                 ("firma", QLineEdit(), None),
                 ("estado", QLineEdit(), None)
             ]
@@ -1551,6 +1554,10 @@ class MainWindow(QMainWindow):
                 QDialogButtonBox.StandardButton.Save | 
                 QDialogButtonBox.StandardButton.Cancel
             )
+            # Cerrar conexión existente si hay una
+            if hasattr(DatabaseManager, '_connection_pool') and DatabaseManager._connection_pool:
+                DatabaseManager._connection_pool.close()
+                DatabaseManager._connection_pool = None
 
             def guardar_modificacion():
                 try:
@@ -1558,7 +1565,7 @@ class MainWindow(QMainWindow):
                     query = """
                         UPDATE documento 
                         SET fecha = %s, establecimiento = %s, tipodocumento = %s,
-                            nrodocumento = %s, materia = %s, destino = %s,
+                            nrodocumento = %s, materia = %s,
                             firma = %s, estado = %s
                         WHERE id_documento = %s
                     """
@@ -1569,7 +1576,6 @@ class MainWindow(QMainWindow):
                         inputs['tipodocumento'].currentText(),
                         inputs['nrodocumento'].text(),
                         inputs['materia'].text(),
-                        inputs['destino'].currentText(),
                         inputs['firma'].text(),
                         inputs['estado'].text(),
                         id_documento
@@ -1615,6 +1621,9 @@ class MainWindow(QMainWindow):
             """)
 
             dialog.exec()
+            if hasattr(DatabaseManager, '_connection_pool') and DatabaseManager._connection_pool:
+                DatabaseManager._connection_pool.close()
+                DatabaseManager._connection_pool = None
 
         except Exception as e:
             self.mostrar_mensaje(
@@ -1992,8 +2001,7 @@ class MainWindow(QMainWindow):
                     }}
                 """)
                 aceptar_btn.clicked.connect(
-                    lambda _, s=solicitud: self.procesar_recepcion(s, True, dialog)
-                )
+                    lambda _, s=solicitud: self.procesar_recepcion(s, True, dialog))
 
                 rechazar_btn = QPushButton("✗")
                 rechazar_btn.setToolTip("Rechazar documento")
@@ -2261,7 +2269,7 @@ class LoginDialog(QDialog):
         form_layout.addRow(self.create_label("Contraseña:"), password_container)
 
         main_layout.addWidget(form_widget)
-
+    
         # Agregar checkbox "Recérdame" antes de los botones
         self.remember_checkbox = QCheckBox("Recordar mis datos")
         self.remember_checkbox.setStyleSheet(f"""
@@ -2279,7 +2287,7 @@ class LoginDialog(QDialog):
             }}
             QCheckBox::indicator:checked {{
                 background-color: {COLORS['primary']};
-                image: url(check.png);
+                image: url("check.png");
             }}
             QCheckBox::indicator:hover {{
                 border-color: {COLORS['primary_light']};
