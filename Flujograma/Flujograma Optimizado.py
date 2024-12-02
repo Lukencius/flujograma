@@ -3224,7 +3224,7 @@ class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Panel de Administración")
-        self.setMinimumWidth(800)
+        self.setMinimumWidth(1000)  # Aumentado para acomodar la nueva columna
         self.setMinimumHeight(600)
         self.setup_ui()
 
@@ -3250,8 +3250,8 @@ class AdminPanel(QDialog):
 
         # Tabla de usuarios
         self.user_table = QTableWidget()
-        self.user_table.setColumnCount(3)
-        self.user_table.setHorizontalHeaderLabels(["Usuario", "Rol Actual", "Nuevo Rol"])
+        self.user_table.setColumnCount(4)  # Aumentado a 4 columnas
+        self.user_table.setHorizontalHeaderLabels(["Usuario", "Rol Actual", "Nuevo Rol", "Acciones"])
         self.user_table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLORS['surface']};
@@ -3380,7 +3380,7 @@ class AdminPanel(QDialog):
     def load_users(self):
         try:
             users = DatabaseManager.execute_query("""
-                SELECT nombreusuario, rol 
+                SELECT nombreusuario, rol, email, departamento 
                 FROM usuario 
                 ORDER BY nombreusuario
             """)
@@ -3388,30 +3388,154 @@ class AdminPanel(QDialog):
             self.user_table.setRowCount(len(users))
             
             for i, user in enumerate(users):
-                # Usuario
+                # Usuario, Rol actual y ComboBox (código existente)
                 username_item = QTableWidgetItem(user['nombreusuario'])
                 username_item.setForeground(QColor(COLORS['text']))
                 self.user_table.setItem(i, 0, username_item)
                 
-                # Rol actual
                 current_role_item = QTableWidgetItem(user['rol'])
                 current_role_item.setForeground(QColor(COLORS['text']))
                 self.user_table.setItem(i, 1, current_role_item)
                 
-                # Combo box para nuevo rol
                 role_combo = QComboBox()
                 role_combo.addItems(["usuario", "recepcionista", "admin"])
                 role_combo.setCurrentText(user['rol'])
                 role_combo.setStyleSheet(self.combo_style)
                 self.user_table.setCellWidget(i, 2, role_combo)
 
+                # Nuevo: Contenedor para botones de acción
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(5, 0, 5, 0)
+                action_layout.setSpacing(10)
+
+                # Botón Editar
+                edit_btn = QPushButton("✏️")
+                edit_btn.setToolTip("Editar usuario")
+                edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                edit_btn.setStyleSheet(self.get_action_button_style())
+                edit_btn.clicked.connect(lambda checked, u=user: self.edit_user(u))
+
+                # Botón Eliminar
+                delete_btn = QPushButton("🗑️")
+                delete_btn.setToolTip("Eliminar usuario")
+                delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                delete_btn.setStyleSheet(self.get_action_button_style('delete'))
+                delete_btn.clicked.connect(lambda checked, u=user: self.delete_user(u))
+
+                # Agregar botones al layout
+                action_layout.addWidget(edit_btn)
+                action_layout.addWidget(delete_btn)
+                action_layout.addStretch()
+
+                # Establecer el widget de acciones en la tabla
+                self.user_table.setCellWidget(i, 3, action_widget)
+
             # Ajustar tamaño de columnas
             self.user_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            self.user_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            self.user_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self.user_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+            self.user_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+            self.user_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+            
+            self.user_table.setColumnWidth(1, 120)  # Rol Actual
+            self.user_table.setColumnWidth(2, 120)  # Nuevo Rol
+            self.user_table.setColumnWidth(3, 100)  # Acciones
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
+
+    def get_action_button_style(self, button_type='default'):
+        """Retorna el estilo para los botones de acción"""
+        base_style = f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                font-size: 16px;
+                min-width: 30px;
+                max-width: 30px;
+                min-height: 30px;
+                max-height: 30px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['button_hover']};
+            }}
+        """
+        if button_type == 'delete':
+            base_style += f"""
+                QPushButton:hover {{
+                    background-color: {COLORS['error']};
+                }}
+            """
+        return base_style
+
+    def edit_user(self, user):
+        """Abre el diálogo de edición de usuario"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Editar Usuario")
+        dialog.setFixedWidth(400)
+        
+        layout = QVBoxLayout(dialog)
+        form_layout = QFormLayout()
+
+        # Campos de edición
+        email_input = QLineEdit(user['email'])
+        departamento_combo = QComboBox()
+        departamento_combo.addItems(DatabaseManager.get_departamentos())
+        departamento_combo.setCurrentText(user['departamento'])
+
+        form_layout.addRow("Email:", email_input)
+        form_layout.addRow("Departamento:", departamento_combo)
+
+        layout.addLayout(form_layout)
+
+        # Botones
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                # Actualizar usuario en la base de datos
+                DatabaseManager.execute_query("""
+                    UPDATE usuario 
+                    SET email = %s, departamento = %s 
+                    WHERE nombreusuario = %s
+                """, (email_input.text(), departamento_combo.currentText(), user['nombreusuario']))
+                
+                QMessageBox.information(self, "Éxito", "Usuario actualizado correctamente")
+                self.load_users()  # Recargar la tabla
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al actualizar usuario: {str(e)}")
+
+    def delete_user(self, user):
+        """Elimina un usuario después de confirmar"""
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Eliminación",
+            f"¿Está seguro de que desea eliminar al usuario {user['nombreusuario']}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                DatabaseManager.execute_query("""
+                    DELETE FROM usuario 
+                    WHERE nombreusuario = %s
+                """, (user['nombreusuario'],))
+                
+                QMessageBox.information(self, "Éxito", "Usuario eliminado correctamente")
+                self.load_users()  # Recargar la tabla
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al eliminar usuario: {str(e)}")
 
     def save_changes(self):
         try:
