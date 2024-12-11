@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
-                             QHeaderView, QCheckBox, QFileDialog, QAbstractItemView)
+                             QHeaderView, QCheckBox, QFileDialog, QAbstractItemView, QMenu)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
 from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter, QPalette
 from PyQt6.QtSvg import QSvgRenderer
@@ -17,6 +17,9 @@ import hashlib
 from io import BytesIO
 import json
 import os.path
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import smtplib
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -241,7 +244,7 @@ class DatabaseManager:
     @staticmethod
     def get_departamentos():
         try:
-            query = "SELECT nombre_departamento FROM departamento ORDER BY nombre_departamento"
+            query = "SELECT nombre_departamento FROM departamento ORDER BY id_departamento"
             resultados = DatabaseManager.execute_query(query)
             return [resultado['nombre_departamento'] for resultado in resultados]
         except Exception as e:
@@ -2643,10 +2646,10 @@ class RegisterDialog(QDialog):
                 height: 12px;
             }}
             QComboBox QAbstractItemView {{
-                background-color: {COLORS['surface']};
+                background-color: {COLORS['background']};
                 color: {COLORS['text']};
                 selection-background-color: {COLORS['primary']};
-                selection-color: {COLORS['text']};
+                selection-color: white;
             }}
         """)
         
@@ -2833,71 +2836,42 @@ class RegisterDialog(QDialog):
 
     def register(self):
         try:
+            # Obtener los valores de los campos
             username = self.username_input.text()
             email = self.email_input.text()
             password = self.password_input.text()
-            confirm_password = self.confirm_password_input.text()
+            rol = "usuario"  # Por defecto será usuario normal
             departamento = self.departamento_combo.currentText()
-            rol = self.role_combo.currentText() if self.admin_mode else "usuario"
-            
+
             # Validaciones
-            if not all([username, email, password, confirm_password]):
-                self.show_custom_error(
-                    "Campos Incompletos",
-                    "Por favor complete todos los campos para registrarse.",
-                    "Todos los campos son obligatorios para crear una cuenta."
-                )
-                return
+            if not all([username, email, password, departamento]):
+                raise ValueError("Todos los campos son obligatorios")
+
+            # Generar salt y hash de la contraseña
+            salt = DatabaseManager.generate_salt()
+            password_hash = DatabaseManager.hash_password(password, salt)
+
+            # Registrar usuario con estado pendiente
+            DatabaseManager.execute_query("""
+                INSERT INTO usuario 
+                (nombreusuario, email, password_hash, salt, rol, departamento, estado) 
+                VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
+            """, (username, email, password_hash, salt, rol, departamento))
             
-            # Validar formato de email
-            if not self.validate_email(email):
-                self.show_custom_error(
-                    "Email Inválido",
-                    "Por favor ingrese un email válido.",
-                    "El formato debe ser ejemplo@dominio.com"
+            # Enviar email de notificación
+            if EmailNotifier.send_registration_notification(email):
+                self.show_custom_success(
+                    "Registro Pendiente",
+                    "¡Solicitud enviada correctamente!",
+                    "Se ha enviado un correo de confirmación. Un administrador revisará su solicitud."
                 )
-                return
+            else:
+                self.show_custom_warning(
+                    "Registro Pendiente",
+                    "¡Solicitud enviada correctamente!",
+                    "Hubo un problema al enviar el correo de confirmación, pero su solicitud fue registrada."
+                )
             
-            if password != confirm_password:
-                self.show_custom_error(
-                    "Contraseñas No Coinciden",
-                    "Las contraseñas ingresadas no coinciden.",
-                    "Por favor asegúrese de que ambas contraseñas sean idénticas."
-                )
-                return
-            
-            # Validaciones de contraseña
-            if len(password) < 8:
-                self.show_custom_error(
-                    "Contraseña Débil",
-                    "La contraseña debe tener al menos 8 caracteres.",
-                    "Use una combinación de letras, números y símbolos para mayor seguridad."
-                )
-                return
-            
-            if not any(c.isupper() for c in password):
-                self.show_custom_error(
-                    "Contraseña Inválida",
-                    "La contraseña debe contener al menos una mayúscula.",
-                    "Incluya al menos una letra mayúscula para fortalecer su contraseña."
-                )
-                return
-            
-            if not any(c.isdigit() for c in password):
-                self.show_custom_error(
-                    "Contraseña Inválida",
-                    "La contraseña debe contener al menos un número.",
-                    "Incluya al menos un número para fortalecer su contraseña."
-                )
-                return
-                
-            # Registrar usuario con departamento
-            DatabaseManager.register_user(username, email, password, rol, departamento)
-            self.show_custom_success(
-                "Registro Exitoso",
-                "¡Usuario registrado correctamente!",
-                "Ya puede iniciar sesión con sus credenciales."
-            )
             self.accept()
             
         except Exception as e:
@@ -3069,6 +3043,84 @@ class RegisterDialog(QDialog):
 
         success_dialog.exec()
 
+    def show_custom_warning(self, title, message, detail):
+        warning_dialog = QDialog(self)
+        warning_dialog.setWindowTitle(title)
+        warning_dialog.setFixedWidth(400)
+        
+        layout = QVBoxLayout(warning_dialog)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        # Icono de advertencia
+        icon_label = QLabel()
+        icon_label.setText("⚠️")
+        icon_label.setStyleSheet("""
+            QLabel {
+                color: #FFA500;
+                font-size: 48px;
+            }
+        """)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        # Mensaje principal
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text']};
+                font-size: 16px;
+                font-weight: bold;
+            }}
+        """)
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message_label)
+
+        # Detalle
+        detail_label = QLabel(detail)
+        detail_label.setWordWrap(True)
+        detail_label.setStyleSheet(f"""
+            QLabel {{
+                color: {COLORS['text_secondary']};
+                font-size: 14px;
+            }}
+        """)
+        detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(detail_label)
+
+        # Botón de cerrar
+        close_btn = QPushButton("Entendido")
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 100px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLORS['primary']};
+            }}
+        """)
+        close_btn.clicked.connect(warning_dialog.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Estilo general del diálogo
+        warning_dialog.setStyleSheet(f"""
+                QDialog {{
+                    background-color: {COLORS['background']};
+                }}
+            """)
+            
+        warning_dialog.exec()
+
     def validate_username(self):
         text = self.username_input.text()
         validation_result = {
@@ -3224,133 +3276,159 @@ class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Panel de Administración")
-        self.setMinimumWidth(1000)  # Aumentado para acomodar la nueva columna
-        self.setMinimumHeight(600)
-        self.setup_ui()
+        self.setMinimumWidth(1200)
+        self.setMinimumHeight(700)
+        
+        # Inicializar atributos de clase
+        self.search_input = None
+        self.role_filter = None
+        self.user_table = None
+        
+        # Inicializar UI
+        self._init_ui()
+        
+        # Cargar datos
+        try:
+            self.load_users()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
 
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
+    def _init_ui(self):
+        """Inicializa y configura la interfaz de usuario"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(30, 30, 30, 30)
 
-        # Título
-        title_label = QLabel("Administración de Usuarios")
-        title_label.setStyleSheet(f"""
+        # Header con botón de solicitudes
+        header_widget = self._create_header()
+        
+        # Botón de solicitudes con badge de notificación
+        self.requests_btn = QPushButton("🔔 Solicitudes")
+        self.requests_badge = QLabel("0")
+        self.requests_badge.setStyleSheet("""
+            QLabel {
+                background-color: #FF5252;
+                color: white;
+                border-radius: 10px;
+                padding: 2px 6px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+        """)
+        self.requests_badge.hide()
+        
+        # Layout para el botón y su badge
+        request_layout = QHBoxLayout()
+        request_layout.addWidget(self.requests_btn)
+        request_layout.addWidget(self.requests_badge)
+        request_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        
+        self.requests_btn.clicked.connect(self.show_pending_requests)
+        self.requests_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        
+        main_layout.addLayout(request_layout)
+
+        # Búsqueda y filtros
+        search_widget = self._create_search_section()
+        main_layout.addWidget(search_widget)
+
+        # Tabla con sombra
+        table_container = self._create_table_container()
+        main_layout.addWidget(table_container)
+
+        # Botones de acción
+        button_container = self._create_button_container()
+        main_layout.addWidget(button_container)
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLORS['background']};
+            }}
+        """)
+
+    def _create_header(self):
+        """Crea la sección del encabezado con estadísticas"""
+        header = QWidget()
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 20)
+        
+        # Título con icono
+        title = QLabel("👥 Administración de Usuarios")
+        title.setStyleSheet(f"""
             QLabel {{
                 color: {COLORS['text']};
                 font-size: 24px;
                 font-weight: bold;
-                padding: 10px;
-                background-color: {COLORS['surface']};
-                border-radius: 8px;
             }}
         """)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
+        
+        layout.addWidget(title)
+        layout.addStretch()
+        
+        return header
 
-        # Tabla de usuarios
-        self.user_table = QTableWidget()
-        self.user_table.setColumnCount(4)  # Aumentado a 4 columnas
-        self.user_table.setHorizontalHeaderLabels(["Usuario", "Rol Actual", "Nuevo Rol", "Acciones"])
-        self.user_table.setStyleSheet(f"""
-            QTableWidget {{
+    def _create_search_section(self):
+        """Crea la sección de búsqueda y filtros"""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Barra de búsqueda
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("🔍 Buscar usuarios...")
+        self.search_input.textChanged.connect(self._filter_users)
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
                 border: none;
-                border-radius: 8px;
-                gridline-color: {COLORS['primary']};
-            }}
-            QTableWidget::item {{
-                padding: 10px;
-                border-bottom: 1px solid {COLORS['primary']};
-            }}
-            QTableWidget::item:selected {{
-                background-color: {COLORS['primary']};
-            }}
-            QHeaderView::section {{
-                background-color: {COLORS['primary_dark']};
-                color: {COLORS['text']};
-                padding: 10px;
-                border: none;
-                font-weight: bold;
-            }}
-            QScrollBar:vertical {{
-                background: {COLORS['surface']};
-                width: 10px;
-                margin: 0px;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['primary']};
                 border-radius: 5px;
+                padding: 8px;
+                font-size: 14px;
             }}
         """)
-        layout.addWidget(self.user_table)
+        
+        # Filtro por departamento
+        self.dept_filter = QComboBox()
+        self.dept_filter.addItem("Todos los departamentos")
+        # Obtener departamentos de la base de datos
+        try:
+            departamentos = DatabaseManager.execute_query("""
+                SELECT DISTINCT departamento 
+                FROM usuario 
+                WHERE departamento IS NOT NULL 
+                ORDER BY departamento
+            """)
+            for dept in departamentos:
+                if dept['departamento']:  # Asegurarse de que no sea None
+                    self.dept_filter.addItem(dept['departamento'])
+        except Exception as e:
+            print(f"Error al cargar departamentos: {str(e)}")
 
-        # Contenedor de botones
-        button_container = QWidget()
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setSpacing(10)
-
-        # Botón Actualizar
-        refresh_button = QPushButton("Actualizar Lista")
-        refresh_button.clicked.connect(self.load_users)
-        refresh_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 2px solid {COLORS['primary']};
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-                border-color: {COLORS['primary']};
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['primary_dark']};
-            }}
-        """)
-
-        # Botón Guardar
-        save_button = QPushButton("Guardar Cambios")
-        save_button.clicked.connect(self.save_changes)
-        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        save_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['primary']};
-                color: {COLORS['text']};
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary_dark']};
-                transform: translateY(-2px);
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['primary']};
-                transform: translateY(1px);
-            }}
-        """)
-
-        button_layout.addWidget(refresh_button)
-        button_layout.addWidget(save_button)
-        layout.addWidget(button_container)
-
-        # Estilo del ComboBox para roles
-        self.combo_style = f"""
+        self.dept_filter.currentTextChanged.connect(self._filter_users)
+        self.dept_filter.setStyleSheet(f"""
             QComboBox {{
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
-                padding: 5px;
-                border: 2px solid {COLORS['primary']};
-                border-radius: 4px;
+                border: none;
+                border-radius: 5px;
+                padding: 8px;
+                min-width: 200px;
             }}
             QComboBox:hover {{
-                border-color: {COLORS['primary_light']};
+                border: 1px solid {COLORS['primary']};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -3360,159 +3438,373 @@ class AdminPanel(QDialog):
                 width: 12px;
                 height: 12px;
             }}
-            QComboBox QAbstractItemView {{
+        """)
+        
+        layout.addWidget(self.search_input, stretch=2)
+        layout.addWidget(self.dept_filter, stretch=1)
+        return container
+
+    def _create_table_container(self):
+        """Crea el contenedor de la tabla con efectos visuales"""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.user_table = QTableWidget()
+        self.user_table.setColumnCount(5)
+        self.user_table.setHorizontalHeaderLabels([
+            "Usuario", "Email", "Departamento", "Rol", "Acciones"
+        ])
+        
+        # Establecer altura de las filas
+        self.user_table.verticalHeader().setDefaultSectionSize(33)  # Aumenta la altura de las filas a 60px
+        
+        # Opcional: Establecer altura mínima de las filas
+        self.user_table.verticalHeader().setMinimumSectionSize(33)
+        
+        # Configurar el estiramiento de las columnas
+        header = self.user_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Usuario
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Email
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Departamento
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Rol
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Acciones
+        
+        # Establecer anchos específicos para las columnas
+        self.user_table.setColumnWidth(0, 150)  # Usuario
+        self.user_table.setColumnWidth(2, 200)  # Departamento
+        self.user_table.setColumnWidth(3, 100)  # Rol
+        self.user_table.setColumnWidth(4, 100)  # Acciones
+        
+        # Configurar estilos y comportamiento de la tabla
+        self.user_table.setStyleSheet(f"""
+            QTableWidget {{
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
-                selection-background-color: {COLORS['primary']};
-                selection-color: {COLORS['text']};
+                border: none;
+                border-radius: 8px;
+                gridline-color: {COLORS['primary']};
             }}
-        """
-
-        # Estilo general del diálogo
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLORS['background']};
+            QTableWidget::item {{
+                padding: 8px;
+                border-bottom: 1px solid {COLORS['primary']};
+                height: 60px;  /* Altura adicional para los items */
+            }}
+            QTableWidget::item:selected {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 12px 8px;  /* Aumentado el padding vertical del encabezado */
+                border: none;
+                border-bottom: 2px solid {COLORS['primary']};
+                font-weight: bold;
             }}
         """)
+        
+        # Configuraciones adicionales de la tabla
+        self.user_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.user_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.user_table.verticalHeader().setVisible(False)
+        self.user_table.setShowGrid(True)
+        self.user_table.setAlternatingRowColors(True)
+        
+        layout.addWidget(self.user_table)
+        return container
 
-        self.load_users()
+    def _create_button_container(self):
+        """Crea el contenedor con los botones de acción"""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 20, 0, 0)
+        
+        refresh_button = QPushButton("🔄 Actualizar")
+        refresh_button.clicked.connect(self.load_users)
+        refresh_button.setStyleSheet(self._get_button_style())
+        
+        add_button = QPushButton("➕ Nuevo Usuario")
+        add_button.clicked.connect(self.add_user)
+        add_button.setStyleSheet(self._get_button_style('primary'))
+        
+        save_button = QPushButton("💾 Guardar Cambios")
+        save_button.clicked.connect(self.save_changes)
+        save_button.setStyleSheet(self._get_button_style('success'))
+        
+        layout.addWidget(add_button)
+        layout.addStretch()
+        layout.addWidget(refresh_button)
+        layout.addWidget(save_button)
+        
+        return container
+
+    def _configure_table_dimensions(self):
+        """Configura las dimensiones de las columnas de la tabla"""
+        header = self.user_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Usuario
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Email
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Departamento
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Rol Actual
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Nuevo Rol
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Acciones
+        
+        self.user_table.setColumnWidth(0, 100)
+        self.user_table.setColumnWidth(1, 100)
+        self.user_table.setColumnWidth(2, 100)
+        self.user_table.setColumnWidth(3, 100)
+        self.user_table.setColumnWidth(4, 100)
+        self.user_table.setColumnWidth(5, 100)
 
     def load_users(self):
+        """Carga los usuarios desde la base de datos"""
         try:
             users = DatabaseManager.execute_query("""
-                SELECT nombreusuario, rol, email, departamento 
+                SELECT nombreusuario, email, departamento, rol 
                 FROM usuario 
-                ORDER BY nombreusuario
+                ORDER BY departamento, nombreusuario
             """)
             
             self.user_table.setRowCount(len(users))
             
             for i, user in enumerate(users):
-                # Usuario, Rol actual y ComboBox (código existente)
-                username_item = QTableWidgetItem(user['nombreusuario'])
-                username_item.setForeground(QColor(COLORS['text']))
-                self.user_table.setItem(i, 0, username_item)
+                self._populate_user_row(i, user)
                 
-                current_role_item = QTableWidgetItem(user['rol'])
-                current_role_item.setForeground(QColor(COLORS['text']))
-                self.user_table.setItem(i, 1, current_role_item)
+            # Actualizar la lista de departamentos en el filtro
+            self._update_department_filter()
                 
-                role_combo = QComboBox()
-                role_combo.addItems(["usuario", "recepcionista", "admin"])
-                role_combo.setCurrentText(user['rol'])
-                role_combo.setStyleSheet(self.combo_style)
-                self.user_table.setCellWidget(i, 2, role_combo)
-
-                # Nuevo: Contenedor para botones de acción
-                action_widget = QWidget()
-                action_layout = QHBoxLayout(action_widget)
-                action_layout.setContentsMargins(5, 0, 5, 0)
-                action_layout.setSpacing(10)
-
-                # Botón Editar
-                edit_btn = QPushButton("✏️")
-                edit_btn.setToolTip("Editar usuario")
-                edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                edit_btn.setStyleSheet(self.get_action_button_style())
-                edit_btn.clicked.connect(lambda checked, u=user: self.edit_user(u))
-
-                # Botón Eliminar
-                delete_btn = QPushButton("🗑️")
-                delete_btn.setToolTip("Eliminar usuario")
-                delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                delete_btn.setStyleSheet(self.get_action_button_style('delete'))
-                delete_btn.clicked.connect(lambda checked, u=user: self.delete_user(u))
-
-                # Agregar botones al layout
-                action_layout.addWidget(edit_btn)
-                action_layout.addWidget(delete_btn)
-                action_layout.addStretch()
-
-                # Establecer el widget de acciones en la tabla
-                self.user_table.setCellWidget(i, 3, action_widget)
-
-            # Ajustar tamaño de columnas
-            self.user_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            self.user_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-            self.user_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-            self.user_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-            
-            self.user_table.setColumnWidth(1, 120)  # Rol Actual
-            self.user_table.setColumnWidth(2, 120)  # Nuevo Rol
-            self.user_table.setColumnWidth(3, 100)  # Acciones
-
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
 
-    def get_action_button_style(self, button_type='default'):
-        """Retorna el estilo para los botones de acción"""
-        base_style = f"""
-            QPushButton {{
-                background-color: {COLORS['surface']};
+    def _populate_user_row(self, row, user):
+        """Rellena una fila de la tabla con los datos del usuario"""
+        # Usuario
+        self.user_table.setItem(row, 0, QTableWidgetItem(user['nombreusuario']))
+        
+        # Email
+        self.user_table.setItem(row, 1, QTableWidgetItem(user['email']))
+        
+        # Departamento
+        self.user_table.setItem(row, 2, QTableWidgetItem(user['departamento']))
+        
+        # Rol
+        self.user_table.setItem(row, 3, QTableWidgetItem(user['rol']))
+        
+        # Botones de acción
+        action_widget = QWidget()
+        action_layout = QHBoxLayout(action_widget)
+        action_layout.setContentsMargins(0, 0, 0, 0)  # Eliminados los márgenes
+        action_layout.setSpacing(2)  # Reducido el espacio entre botones
+        
+        # Botón editar
+        edit_button = QPushButton("✏️")
+        edit_button.setToolTip("Editar usuario")
+        edit_button.clicked.connect(lambda: self.edit_user(user))
+        edit_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
                 border: none;
-                border-radius: 4px;
-                padding: 5px;
+                padding: 1px;
                 font-size: 16px;
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 30px;
-                max-height: 30px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['button_hover']};
-            }}
-        """
-        if button_type == 'delete':
-            base_style += f"""
-                QPushButton:hover {{
-                    background-color: {COLORS['error']};
-                }}
-            """
-        return base_style
+                min-width: 25px;
+                min-height: 25px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2196F3;
+                border-radius: 4px;
+                color: white;
+            }
+        """)
+        
+        # Botón eliminar
+        delete_button = QPushButton("🗑️")
+        delete_button.setToolTip("Eliminar usuario")
+        delete_button.clicked.connect(lambda: self.delete_user(user))
+        delete_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 1px;
+                font-size: 16px;
+                min-width: 25px;
+                min-height: 25px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #EF5350;
+                border-radius: 4px;
+                color: white;
+            }
+        """)
+        
+        action_layout.addWidget(edit_button)
+        action_layout.addWidget(delete_button)
+        action_layout.addStretch()
+        
+        self.user_table.setCellWidget(row, 4, action_widget)
+
+        # Ajustar el ancho de la columna de acciones
+        self.user_table.setColumnWidth(4, 70)  # Reducido el ancho de la columna
+
+    def _create_action_buttons(self, user):
+        """Crea los botones de acción para un usuario"""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(5, 0, 5, 0)
+        
+        edit_btn = QPushButton("✏️")
+        edit_btn.setToolTip("Editar usuario")
+        edit_btn.clicked.connect(lambda: self.edit_user(user))
+        edit_btn.setStyleSheet(self._get_action_button_style())
+        
+        delete_btn = QPushButton("🗑️")
+        delete_btn.setToolTip("Eliminar usuario")
+        delete_btn.clicked.connect(lambda: self.delete_user(user))
+        delete_btn.setStyleSheet(self._get_action_button_style('danger'))
+        
+        layout.addWidget(edit_btn)
+        layout.addWidget(delete_btn)
+        
+        return widget
+
+    def _filter_users(self):
+        """Filtra los usuarios según la búsqueda y el departamento seleccionado"""
+        search_text = self.search_input.text().lower()
+        selected_dept = self.dept_filter.currentText()
+        
+        for row in range(self.user_table.rowCount()):
+            show_row = True
+            username = self.user_table.item(row, 0).text().lower()
+            email = self.user_table.item(row, 1).text().lower()
+            dept = self.user_table.item(row, 2).text()
+            
+            # Filtrar por texto de búsqueda (en usuario y email)
+            if search_text and search_text not in username and search_text not in email:
+                show_row = False
+                
+            # Filtrar por departamento
+            if selected_dept != "Todos los departamentos" and dept != selected_dept:
+                show_row = False
+                
+            self.user_table.setRowHidden(row, not show_row)
+
+    def add_user(self):
+        """Abre el diálogo para agregar un nuevo usuario"""
+        # Implementar la lógica para agregar usuario
+        pass
 
     def edit_user(self, user):
-        """Abre el diálogo de edición de usuario"""
+        """Abre el diálogo para editar un usuario"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Editar Usuario")
-        dialog.setFixedWidth(400)
-        
-        layout = QVBoxLayout(dialog)
-        form_layout = QFormLayout()
+        dialog.setMinimumWidth(400)
+        layout = QFormLayout(dialog)
 
         # Campos de edición
         email_input = QLineEdit(user['email'])
-        departamento_combo = QComboBox()
-        departamento_combo.addItems(DatabaseManager.get_departamentos())
-        departamento_combo.setCurrentText(user['departamento'])
+        email_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+                border-radius: 5px;
+                padding: 8px;
+            }}
+        """)
 
-        form_layout.addRow("Email:", email_input)
-        form_layout.addRow("Departamento:", departamento_combo)
+        # Combo box para departamento
+        dept_combo = QComboBox()
+        dept_combo.setStyleSheet(self._get_combo_style())
+        
+        try:
+            # Obtener todos los departamentos de la tabla departamento
+            departamentos = DatabaseManager.execute_query("""
+                SELECT nombre_departamento 
+                FROM departamento 
+                ORDER BY nombre_departamento
+            """)
+            
+            # Agregar departamentos al combo box
+            for dept in departamentos:
+                dept_combo.addItem(dept['nombre_departamento'])
+            
+            # Establecer el departamento actual si existe
+            current_dept_index = dept_combo.findText(user['departamento'])
+            if current_dept_index >= 0:
+                dept_combo.setCurrentIndex(current_dept_index)
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al cargar departamentos: {str(e)}"
+            )
 
-        layout.addLayout(form_layout)
+        # Combo box para rol
+        role_combo = QComboBox()
+        role_combo.addItems(["usuario", "recepcionista", "admin"])
+        role_combo.setCurrentText(user['rol'])
+        role_combo.setStyleSheet(self._get_combo_style())
+
+        # Agregar campos al layout
+        layout.addRow("Email:", email_input)
+        layout.addRow("Departamento:", dept_combo)
+        layout.addRow("Rol:", role_combo)
 
         # Botones
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | 
             QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        
+        button_box.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: {COLORS['text']};
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary_dark']};
+            }}
+        """)
+
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addRow(button_box)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
                 # Actualizar usuario en la base de datos
                 DatabaseManager.execute_query("""
                     UPDATE usuario 
-                    SET email = %s, departamento = %s 
+                    SET email = %s, departamento = %s, rol = %s 
                     WHERE nombreusuario = %s
-                """, (email_input.text(), departamento_combo.currentText(), user['nombreusuario']))
+                """, (
+                    email_input.text(),
+                    dept_combo.currentText(),
+                    role_combo.currentText(),
+                    user['nombreusuario']
+                ))
                 
-                QMessageBox.information(self, "Éxito", "Usuario actualizado correctamente")
-                self.load_users()  # Recargar la tabla
+                # Recargar la tabla
+                self.load_users()
+                
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    "Usuario actualizado correctamente"
+                )
                 
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error al actualizar usuario: {str(e)}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Error al actualizar usuario: {str(e)}"
+                )
 
     def delete_user(self, user):
         """Elimina un usuario después de confirmar"""
@@ -3523,44 +3815,432 @@ class AdminPanel(QDialog):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
-
+        
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                DatabaseManager.execute_query("""
-                    DELETE FROM usuario 
-                    WHERE nombreusuario = %s
-                """, (user['nombreusuario'],))
-                
+                DatabaseManager.execute_query(
+                    "DELETE FROM usuario WHERE nombreusuario = %s",
+                    (user['nombreusuario'],)
+                )
+                self.load_users()
                 QMessageBox.information(self, "Éxito", "Usuario eliminado correctamente")
-                self.load_users()  # Recargar la tabla
-                
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error al eliminar usuario: {str(e)}")
 
     def save_changes(self):
+        """Guarda los cambios en los roles de usuarios"""
         try:
-            changes_made = False
+            changes = []
             for row in range(self.user_table.rowCount()):
                 username = self.user_table.item(row, 0).text()
-                current_role = self.user_table.item(row, 1).text()
-                new_role = self.user_table.cellWidget(row, 2).currentText()
+                current_role = self.user_table.item(row, 3).text()
+                new_role = self.user_table.cellWidget(row, 4).currentText()
                 
                 if current_role != new_role:
-                    DatabaseManager.execute_query("""
-                        UPDATE usuario 
-                        SET rol = %s 
-                        WHERE nombreusuario = %s
-                    """, (new_role, username))
-                    changes_made = True
+                    changes.append((username, new_role))
             
-            if changes_made:
-                QMessageBox.information(self, "Éxito", "Roles actualizados correctamente")
-                self.load_users()
-            else:
-                QMessageBox.information(self, "Info", "No se realizaron cambios")
-                
+            if not changes:
+                QMessageBox.information(self, "Info", "No hay cambios para guardar")
+                return
+            
+            for username, new_role in changes:
+                DatabaseManager.execute_query(
+                    "UPDATE usuario SET rol = %s WHERE nombreusuario = %s",
+                    (new_role, username)
+                )
+            
+            self.load_users()
+            QMessageBox.information(self, "Éxito", "Cambios guardados correctamente")
+            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al guardar cambios: {str(e)}")
+
+    # Métodos de estilo
+    @staticmethod
+    def _get_button_style(button_type='default'):
+        styles = {
+            'default': f"""
+                QPushButton {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    border: 2px solid {COLORS['primary']};
+                    padding: 8px 15px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['primary']};
+                }}
+            """,
+            'primary': f"""
+                QPushButton {{
+                    background-color: {COLORS['primary']};
+                    color: {COLORS['text']};
+                    border: none;
+                    padding: 8px 15px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['primary_dark']};
+                }}
+            """,
+            'success': f"""
+                QPushButton {{
+                    background-color: {COLORS['success']};
+                    color: {COLORS['text']};
+                    border: none;
+                    padding: 8px 15px;
+                    border-radius: 5px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #388E3C;
+                }}
+            """
+        }
+        return styles.get(button_type, styles['default'])
+
+    @staticmethod
+    def _get_action_button_style(button_type='default'):
+        base_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 3px;
+                padding: 5px;
+                font-size: 16px;
+            }}
+        """
+        
+        if button_type == 'danger':
+            base_style += f"""
+                QPushButton:hover {{
+                    background-color: {COLORS['error']};
+                }}
+            """
+        else:
+            base_style += f"""
+                QPushButton:hover {{
+                    background-color: {COLORS['primary']};
+                }}
+            """
+        return base_style
+
+    @staticmethod
+    def _get_combo_style():
+        return f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['primary']};
+                border-radius: 3px;
+                padding: 5px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS['primary_light']};
+            }}
+        """
+
+    def _update_department_filter(self):
+        """Actualiza la lista de departamentos en el filtro"""
+        current_dept = self.dept_filter.currentText()
+        self.dept_filter.clear()
+        self.dept_filter.addItem("Todos los departamentos")
+        
+        try:
+            departamentos = DatabaseManager.execute_query("""
+                SELECT DISTINCT departamento 
+                FROM usuario 
+                WHERE departamento IS NOT NULL 
+                ORDER BY departamento
+            """)
+            
+            for dept in departamentos:
+                if dept['departamento']:
+                    self.dept_filter.addItem(dept['departamento'])
+                    
+            # Restaurar la selección anterior si aún existe
+            index = self.dept_filter.findText(current_dept)
+            if index >= 0:
+                self.dept_filter.setCurrentIndex(index)
+                
+        except Exception as e:
+            print(f"Error al actualizar departamentos: {str(e)}")
+
+    def _setup_theme_selector(self):
+        themes = {
+            "Dark": {
+                "background": "#1e1e1e",
+                "surface": "#2b2b2b",
+                "primary": "#1976D2",
+                "text": "#ffffff"
+            },
+            "Light": {
+                "background": "#ffffff",
+                "surface": "#f5f5f5",
+                "primary": "#2196F3",
+                "text": "#000000"
+            },
+            "Night": {
+                "background": "#000000",
+                "surface": "#121212",
+                "primary": "#BB86FC",
+                "text": "#ffffff"
+            }
+        }
+        
+        theme_menu = QMenu("🎨 Temas")
+        for theme_name in themes:
+            action = theme_menu.addAction(theme_name)
+            action.triggered.connect(lambda checked, t=theme_name: self._apply_theme(themes[t]))
+
+    def _create_notification_center(self):
+        notification_widget = QWidget()
+        layout = QVBoxLayout(notification_widget)
+        
+        notifications = [
+            ("⚠️", "5 usuarios pendientes de aprobación"),
+            ("🔒", "3 intentos fallidos de inicio de sesión"),
+            ("📊", "Reporte mensual disponible"),
+            ("🔄", "Actualización del sistema pendiente")
+        ]
+        
+        for icon, text in notifications:
+            note = QPushButton(f"{icon} {text}")
+            note.setStyleSheet("""
+                QPushButton {
+                    background-color: #2b2b2b;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 10px;
+                    text-align: left;
+                    margin: 2px;
+                }
+                QPushButton:hover {
+                    background-color: #333333;
+                }
+            """)
+            layout.addWidget(note)
+
+    def show_pending_requests(self):
+        dialog = PendingRequestsDialog(self)
+        dialog.exec()
+
+    def update_pending_count(self):
+        try:
+            count = DatabaseManager.execute_query("""
+                SELECT COUNT(*) as count 
+                FROM usuario 
+                WHERE estado = 'pendiente'
+            """)[0]['count']
+            
+            if count > 0:
+                self.requests_badge.setText(str(count))
+                self.requests_badge.show()
+            else:
+                self.requests_badge.hide()
+                
+        except Exception as e:
+            print(f"Error al actualizar contador de solicitudes: {str(e)}")
+
+class PendingRequestsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Solicitudes Pendientes")
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(500)
+        
+        layout = QVBoxLayout(self)
+        
+        # Tabla de solicitudes
+        self.requests_table = QTableWidget()
+        self.requests_table.setColumnCount(7)
+        self.requests_table.setHorizontalHeaderLabels([
+            "Usuario", "Email", "Departamento", 
+            "Fecha Solicitud", "Estado", "Acciones", "Detalles"
+        ])
+        
+        # Configurar la tabla
+        self.requests_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #2b2b2b;
+                border: none;
+                border-radius: 8px;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #333333;
+            }
+        """)
+        
+        layout.addWidget(self.requests_table)
+        
+        self.load_pending_requests()
+
+    def load_pending_requests(self):
+        try:
+            requests = DatabaseManager.execute_query("""
+                SELECT nombreusuario, email, departamento, fecha_solicitud, estado
+                FROM usuario 
+                WHERE estado = 'pendiente'
+                ORDER BY fecha_solicitud DESC
+            """)
+            
+            self.requests_table.setRowCount(len(requests))
+            
+            for i, req in enumerate(requests):
+                self.requests_table.setItem(i, 0, QTableWidgetItem(req['nombreusuario']))
+                self.requests_table.setItem(i, 1, QTableWidgetItem(req['email']))
+                self.requests_table.setItem(i, 2, QTableWidgetItem(req['departamento']))
+                self.requests_table.setItem(i, 3, QTableWidgetItem(
+                    req['fecha_solicitud'].strftime("%Y-%m-%d %H:%M")
+                ))
+                
+                # Estado con color
+                estado_item = QTableWidgetItem("PENDIENTE")
+                estado_item.setForeground(QColor("#FFC107"))
+                self.requests_table.setItem(i, 4, estado_item)
+                
+                # Botones de acción
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                
+                approve_btn = QPushButton("✅")
+                reject_btn = QPushButton("❌")
+                
+                approve_btn.clicked.connect(lambda _, u=req['nombreusuario']: self.approve_user(u))
+                reject_btn.clicked.connect(lambda _, u=req['nombreusuario']: self.reject_user(u))
+                
+                for btn in [approve_btn, reject_btn]:
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: transparent;
+                            border: none;
+                            font-size: 16px;
+                            padding: 5px;
+                        }
+                        QPushButton:hover {
+                            background-color: #333333;
+                            border-radius: 3px;
+                        }
+                    """)
+                
+                action_layout.addWidget(approve_btn)
+                action_layout.addWidget(reject_btn)
+                self.requests_table.setCellWidget(i, 5, action_widget)
+                
+                # Botón de detalles
+                details_btn = QPushButton("👁️")
+                details_btn.clicked.connect(lambda _, u=req: self.show_user_details(u))
+                details_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: transparent;
+                        border: none;
+                        font-size: 16px;
+                        padding: 5px;
+                    }
+                    QPushButton:hover {
+                        background-color: #333333;
+                        border-radius: 3px;
+                    }
+                """)
+                self.requests_table.setCellWidget(i, 6, details_btn)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al cargar solicitudes: {str(e)}")
+
+    def approve_user(self, username):
+        try:
+            # Obtener información del usuario
+            user_info = DatabaseManager.execute_query("""
+                SELECT email FROM usuario WHERE nombreusuario = %s
+            """, (username,))[0]
+            
+            # Actualizar estado en la base de datos
+            DatabaseManager.execute_query("""
+                UPDATE usuario 
+                SET estado = 'aprobado',
+                    fecha_aprobacion = CURRENT_TIMESTAMP,
+                    aprobado_por = %s
+                WHERE nombreusuario = %s
+            """, (self.parent().current_admin, username))
+            
+            # Enviar notificación por email
+            if EmailNotifier.send_approval_notification(user_info['email'], username):
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    "Usuario aprobado y notificación enviada correctamente"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Advertencia",
+                    "Usuario aprobado pero hubo un problema al enviar la notificación"
+                )
+            
+            self.load_pending_requests()
+            self.parent().update_pending_count()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al aprobar usuario: {str(e)}")
+
+    def reject_user(self, username):
+        reason, ok = QInputDialog.getText(
+            self, 
+            "Motivo de Rechazo",
+            "Por favor, indique el motivo del rechazo:"
+        )
+        
+        if ok and reason:
+            try:
+                # Obtener información del usuario
+                user_info = DatabaseManager.execute_query("""
+                    SELECT email FROM usuario WHERE nombreusuario = %s
+                """, (username,))[0]
+                
+                # Actualizar estado en la base de datos
+                DatabaseManager.execute_query("""
+                    UPDATE usuario 
+                    SET estado = 'rechazado',
+                        fecha_aprobacion = CURRENT_TIMESTAMP,
+                        aprobado_por = %s
+                    WHERE nombreusuario = %s
+                """, (self.parent().current_admin, username))
+                
+                # Enviar notificación por email
+                if EmailNotifier.send_rejection_notification(user_info['email'], username, reason):
+                    QMessageBox.information(
+                        self,
+                        "Éxito",
+                        "Usuario rechazado y notificación enviada correctamente"
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Advertencia",
+                        "Usuario rechazado pero hubo un problema al enviar la notificación"
+                    )
+                
+                self.load_pending_requests()
+                self.parent().update_pending_count()
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al rechazar usuario: {str(e)}")
+
+    def show_user_details(self, user):
+        # Implementar la lógica para mostrar detalles del usuario
+        pass
+
+    def send_approval_notification(self, username):
+        # Implementar la lógica para enviar notificación de aprobación
+        pass
+
+    def send_rejection_notification(self, username, reason):
+        # Implementar la lógica para enviar notificación de rechazo
+        pass
 
 # Función auxiliar para crear el estilo de input (para reutilizar en ambas clases)
 def create_input_style():
@@ -3751,6 +4431,168 @@ class SignalManager(QObject):
         """Emite señal de progreso"""
         if cls._instance:
             cls._instance.progress_updated.emit(value)
+
+class EmailManager:
+    def __init__(self):
+        # Configuración del servidor de correo (ejemplo con Gmail)
+        self.smtp_server = "smtp.gmail.com"
+        self.smtp_port = 587
+        self.sender_email = "tu_correo@gmail.com"  # Correo desde donde se enviarán las notificaciones
+        self.sender_password = "tu_contraseña_de_aplicacion"  # Contraseña de aplicación de Gmail
+    
+    def send_email(self, to_email, subject, html_content):
+        try:
+            # Crear mensaje
+            message = MIMEMultipart('alternative')
+            message['Subject'] = subject
+            message['From'] = self.sender_email
+            message['To'] = to_email
+
+            # Convertir el contenido HTML
+            html_part = MIMEText(html_content, 'html')
+            message.attach(html_part)
+
+            # Conectar y enviar
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(message)
+                
+            return True
+        except Exception as e:
+            print(f"Error enviando email: {str(e)}")
+            return False
+
+class EmailNotifier:
+    SMTP_SERVER = "smtp.gmail.com"
+    SMTP_PORT = 587
+    SENDER_EMAIL = "notificacion@corporacionislademaipo.cl"  # Reemplaza con tu correo
+    SENDER_PASSWORD = "Info13603$"  # Reemplaza con tu contraseña de aplicación
+
+    @classmethod
+    def send_registration_notification(cls, email):
+        try:
+            subject = "Solicitud de Registro - Corporación Isla de Maipo"
+            
+            # Crear el contenido HTML del correo
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #2196F3;">Solicitud de Registro Recibida</h2>
+                
+                <p>Estimado usuario,</p>
+                
+                <p>Hemos recibido su solicitud de registro en el Sistema de Gestión de la Corporación Isla de Maipo.</p>
+                
+                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Email registrado:</strong> {email}</p>
+                    <p style="margin: 10px 0 0;"><strong>Estado:</strong> Pendiente de aprobación</p>
+                </div>
+                
+                <p>Un administrador revisará su solicitud y recibirá una notificación cuando sea procesada.</p>
+                
+                <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                    Este es un correo automático, por favor no responda a este mensaje.<br>
+                    Corporación Isla de Maipo © 2024
+                </p>
+            </div>
+            """
+            
+            # Enviar el correo
+            return cls._send_email(email, subject, html_content)
+            
+        except Exception as e:
+            print(f"Error al enviar notificación de registro: {str(e)}")
+            return False
+
+    @classmethod
+    def send_approval_notification(cls, email, username):
+        try:
+            subject = "Solicitud Aprobada - Corporación Isla de Maipo"
+            
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #4CAF50;">¡Su solicitud ha sido aprobada!</h2>
+                
+                <p>Estimado {username},</p>
+                
+                <p>Nos complace informarle que su solicitud de registro ha sido aprobada.</p>
+                
+                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Usuario:</strong> {username}</p>
+                    <p style="margin: 10px 0 0;"><strong>Email:</strong> {email}</p>
+                </div>
+                
+                <p>Ya puede acceder al sistema utilizando sus credenciales.</p>
+                
+                <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                    Este es un correo automático, por favor no responda a este mensaje.<br>
+                    Corporación Isla de Maipo © 2024
+                </p>
+            </div>
+            """
+            
+            return cls._send_email(email, subject, html_content)
+            
+        except Exception as e:
+            print(f"Error al enviar notificación de aprobación: {str(e)}")
+            return False
+
+    @classmethod
+    def send_rejection_notification(cls, email, username, reason):
+        try:
+            subject = "Actualización de Solicitud - Corporación Isla de Maipo"
+            
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #F44336;">Actualización de su Solicitud</h2>
+                
+                <p>Estimado {username},</p>
+                
+                <p>Lamentamos informarle que su solicitud de registro no ha sido aprobada.</p>
+                
+                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Motivo:</strong> {reason}</p>
+                </div>
+                
+                <p>Si considera que esto es un error o necesita más información, por favor contacte al administrador.</p>
+                
+                <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                    Este es un correo automático, por favor no responda a este mensaje.<br>
+                    Corporación Isla de Maipo © 2024
+                </p>
+            </div>
+            """
+            
+            return cls._send_email(email, subject, html_content)
+            
+        except Exception as e:
+            print(f"Error al enviar notificación de rechazo: {str(e)}")
+            return False
+
+    @classmethod
+    def _send_email(cls, to_email, subject, html_content):
+        try:
+            # Crear mensaje
+            message = MIMEMultipart('alternative')
+            message['Subject'] = subject
+            message['From'] = cls.SENDER_EMAIL
+            message['To'] = to_email
+
+            # Agregar contenido HTML
+            html_part = MIMEText(html_content, 'html')
+            message.attach(html_part)
+
+            # Conectar y enviar
+            with smtplib.SMTP(cls.SMTP_SERVER, cls.SMTP_PORT) as server:
+                server.starttls()
+                server.login(cls.SENDER_EMAIL, cls.SENDER_PASSWORD)
+                server.send_message(message)
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error enviando email: {str(e)}")
+            return False
 
 def main():
     app = QApplication(sys.argv)
