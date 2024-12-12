@@ -373,34 +373,6 @@ class MainWindow(QMainWindow):
         title_layout.setSpacing(5)
         title_layout.setContentsMargins(0, 0, 0, 15)  # Añadido margen inferior
 
-        # # Título sin fondo
-        # title_label = QLabel("Corporación de Isla de Maipo")
-        # title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # title_label.setStyleSheet("""
-        #     QLabel {
-        #         color: white;
-        #         font-size: 15px;
-        #         font-weight: bold;
-        #         letter-spacing: 0.5px;
-        #         padding: 5px 0px;
-        #     }
-        # """)
-        # title_layout.addWidget(title_label)
-
-        # Línea separadora sutil
-        # line = QFrame()
-        # line.setFrameShape(QFrame.Shape.HLine)
-        # line.setStyleSheet("""
-        #     QFrame {
-        #         border: none;
-        #         background-color: rgba(30, 136, 229, 0.5);
-        #         max-height: 1px;
-        #         margin: 0px 40px;
-        #     }
-        # """)
-        # title_layout.addWidget(line)
-        
-        # left_layout.addWidget(title_container)
 
         # Botones
         self.buttons_data = [
@@ -491,11 +463,29 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(20, 20, 20, 20)  # Márgenes externos
         right_layout.setSpacing(10)  # Espacio entre widgets
 
-        # Contenedor para la barra de búsqueda
+        # Contenedor para la barra de búsqueda y botones
         search_container = QWidget()
         search_layout = QHBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(10)
+
+        # Combo de búsqueda - SOLO los tres filtros necesarios
+        self.search_combo = QComboBox()
+        self.search_combo.addItems([
+            "ID Documento",
+            "Fecha",
+            "Estado"
+        ])
+        self.search_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                padding: 8px;
+                border: 2px solid {COLORS['primary']};
+                border-radius: 6px;
+                min-width: 150px;
+            }}
+        """)
 
         # Barra de búsqueda
         self.search_bar = QLineEdit()
@@ -509,15 +499,8 @@ class MainWindow(QMainWindow):
                 border-radius: 6px;
                 font-size: 14px;
             }}
-            QLineEdit:focus {{
-                border-color: {COLORS['primary_light']};
-            }}
-            QLineEdit::placeholder {{
-                color: {COLORS['text_secondary']};
-            }}
         """)
         self.search_bar.textChanged.connect(self.filter_data)
-        search_layout.addWidget(self.search_bar)
 
         # Botón limpiar búsqueda
         clear_btn = QPushButton("✕")
@@ -530,58 +513,16 @@ class MainWindow(QMainWindow):
                 border-radius: 16px;
                 font-size: 14px;
             }}
-            QPushButton:hover {{
-                background-color: {COLORS['primary']};
-            }}
         """)
         clear_btn.clicked.connect(self.clear_search)
+
+        # Agregar widgets al layout
+        search_layout.addWidget(self.search_combo)
+        search_layout.addWidget(self.search_bar)
         search_layout.addWidget(clear_btn)
 
         right_layout.addWidget(search_container)
 
-        # Contenedor para la barra de búsqueda y botones
-        search_container = QWidget()
-        search_layout = QHBoxLayout(search_container)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(10)
-
-        # Combo de búsqueda
-        self.search_combo = QComboBox()
-        self.search_combo.addItems([
-            "Todos los campos",
-            "Agrupar por Año",    # Nueva opción
-            "Agrupar por Estado", # Nueva opción
-            "Fecha",
-            "Establecimiento",
-            "Tipo Documento",
-            "Nro Documento",
-            "Materia",
-            "Destino",
-            "Firma",
-            "Estado"
-        ])
-        self.search_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                padding: 8px;
-                border: 2px solid {COLORS['primary']};
-                border-radius: 6px;
-                min-width: 150px;
-            }}
-            QComboBox:hover {{
-                border-color: {COLORS['primary_light']};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                padding-right: 10px;
-            }}
-            QComboBox::down-arrow {{
-                image: url(down_arrow.png);
-                width: 12px;
-                height: 12px;
-            }}
-        """)
         # TreeWidget para mostrar datos
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels([
@@ -1400,7 +1341,7 @@ class MainWindow(QMainWindow):
                 button.setVisible(False)
 
     def filter_data(self):
-        """Filtra los datos según el texto de búsqueda"""
+        """Filtra los datos según el texto de búsqueda y realiza agrupaciones"""
         search_text = self.search_bar.text().lower()
         search_type = self.search_combo.currentText()
 
@@ -1408,28 +1349,15 @@ class MainWindow(QMainWindow):
             item = self.tree_widget.topLevelItem(i)
             show_item = False
 
-            if search_type == "Todos los campos":
-                # Buscar en todas las columnas
-                show_item = any(
-                    search_text in item.text(j).lower() 
-                    for j in range(self.tree_widget.columnCount())
-                )
-            else:
-                # Mapear el texto del combo con el índice de la columna
-                column_map = {
-                    "Fecha": 1,
-                    "Establecimiento": 2,
-                    "Tipo Documento": 3,
-                    "Nro Documento": 4,
-                    "Materia": 5,
-                    "Destino": 6,
-                    "Firma": 7,
-                    "Estado": 8
-                }
-                
-                if search_type in column_map:
-                    column_idx = column_map[search_type]
-                    show_item = search_text in item.text(column_idx).lower()
+            # Buscar en la columna específica según el tipo de búsqueda
+            column_map = {
+                "ID Documento": 0,  # Columna del ID
+                "Fecha": 1,         # Columna de la fecha
+                "Estado": 9         # Columna del estado
+            }
+            if search_type in column_map:
+                column = column_map[search_type]
+                show_item = search_text in item.text(column).lower()
 
             item.setHidden(not show_item)
 
@@ -2218,7 +2146,7 @@ class LoginDialog(QDialog):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
 
-        # T��tulo
+        # Ttulo
         title_label = QLabel("Bienvenido")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
