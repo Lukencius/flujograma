@@ -1283,17 +1283,9 @@ class MainWindow(QMainWindow):
                 'destino': doc_info['destino'] if doc_info else ''
             })
         
-        if categoria == "Sin Agrupación":
-            for data in items_data:
-                item = data['item']
-                self.tree_widget.addTopLevelItem(item)
-                self.setup_pdf_button(item, data['tiene_pdf'], data['id_documento'])
-                if data['lugar_actual'] == self.departamento:
-                    self.setup_enviar_button(item, data)
-            return
-        
         # Mapeo de categorías a índices de columna
         columnas = {
+            "Id": 0,
             "Establecimiento": 2,
             "Tipo Doc": 3,
             "Estado": 8,
@@ -1315,11 +1307,18 @@ class MainWindow(QMainWindow):
         # Limpiar y repoblar el tree widget
         self.tree_widget.clear()
         
-        # Agregar items agrupados
-        for grupo in sorted(grupos.keys()):
+        # Ordenar las claves de los grupos en orden descendente
+        # Si la categoría es "Id", convertir a enteros para ordenar numéricamente
+        if categoria == "Id":
+            sorted_keys = sorted(grupos.keys(), key=lambda x: int(x), reverse=True)
+        else:
+            sorted_keys = sorted(grupos.keys(), reverse=True)
+        
+        # Agregar items agrupados en orden
+        for grupo in sorted_keys:
             grupo_items = grupos[grupo]
-            # Ordenar items dentro del grupo por ID
-            grupo_items.sort(key=lambda x: int(x['item'].text(0)))
+            # Ordenar items dentro del grupo por ID en orden descendente
+            grupo_items.sort(key=lambda x: int(x['item'].text(0)), reverse=True)
             for data in grupo_items:
                 item = data['item']
                 self.tree_widget.addTopLevelItem(item)
@@ -2088,7 +2087,7 @@ class MainWindow(QMainWindow):
                 (estado, motivo, solicitud['id_documento'])
             )
 
-            if aceptar:
+            if aceptar: 
                 # Actualizar documento: lugar_actual = nuevo departamento y destino = vacío
                 update_documento = """
                     UPDATE documento 
