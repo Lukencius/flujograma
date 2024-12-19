@@ -211,9 +211,9 @@ class DatabaseManager:
 
     @staticmethod
     def validate_login(email, password):
-        """Modificado para usar email en lugar de nombreusuario"""
+        """Modificado para verificar también el estado del usuario"""
         query = """
-        SELECT password_hash, salt, rol, departamento 
+        SELECT password_hash, salt, rol, departamento, estado 
         FROM usuario 
         WHERE email = %s
         """
@@ -223,7 +223,13 @@ class DatabaseManager:
             user = result[0]
             password_hash = DatabaseManager.hash_password(password, user['salt'])
             if password_hash == user['password_hash']:
-                return True, user['rol'], user['departamento']
+                # Verificar el estado del usuario
+                if user['estado'] == 'aprobado':
+                    return True, user['rol'], user['departamento']
+                elif user['estado'] == 'pendiente':
+                    return 'pendiente', None, None
+                else:
+                    return 'rechazado', None, None
         return False, None, None
 
     @staticmethod
@@ -1995,7 +2001,8 @@ class MainWindow(QMainWindow):
                     }}
                 """)
                 aceptar_btn.clicked.connect(
-                    lambda _, s=solicitud: self.procesar_recepcion(s, True, dialog))
+                    lambda _, s=solicitud: self.procesar_recepcion(s, True, dialog)
+                )
 
                 rechazar_btn = QPushButton("✗")
                 rechazar_btn.setToolTip("Rechazar documento")
@@ -2721,6 +2728,44 @@ class LoginDialog(QDialog):
     def get_user_email(self):  # Nuevo método para obtener el email
         """Retorna el email del usuario"""
         return self.email_input.text()
+
+    def accept(self):
+        """Modificado para manejar el estado del usuario"""
+        email = self.email_input.text()
+        password = self.password_input.text()
+
+        try:
+            login_result, role, departamento = DatabaseManager.validate_login(email, password)
+            
+            if login_result == True:  # Usuario aprobado
+                self.user_role = role
+                self.user_email = email
+                self.user_departamento = departamento
+                super().accept()
+            elif login_result == 'pendiente':
+                QMessageBox.warning(
+                    self,
+                    "Acceso Pendiente",
+                    "Su solicitud de registro está pendiente de aprobación. Por favor, sea paciente."
+                )
+            elif login_result == 'rechazado':
+                QMessageBox.critical(
+                    self,
+                    "Acceso Denegado",
+                    "Su solicitud de registro ha sido rechazada. Contacte al administrador para más información."
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Error de Login",
+                    "Email o contraseña incorrectos"
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Error al intentar iniciar sesión: {str(e)}"
+            )
 
 class RegisterDialog(QDialog):
     def __init__(self, parent=None, admin_mode=False):
