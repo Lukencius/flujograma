@@ -178,7 +178,7 @@ class DatabaseManager:
         DatabaseManager.execute_query(query)
 
     @staticmethod
-    def register_user(username, email, password, rol="usuario", departamento=None):
+    def register_user(username, email, password, rol="usuario", departamento=None, fecha_solicitud=None):
         """Registra un nuevo usuario con email y departamento"""
         try:
             salt = DatabaseManager.generate_salt()
@@ -187,9 +187,9 @@ class DatabaseManager:
             # Sentencia SQL actualizada con departamento
             query = """
             INSERT INTO usuario 
-                (nombreusuario, email, password_hash, salt, rol, departamento) 
+                (nombreusuario, email, password_hash, salt, rol, departamento, fecha_solicitud) 
             VALUES 
-                (%s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'))
             """
             
             # Parámetros actualizados incluyendo departamento
@@ -854,7 +854,7 @@ class MainWindow(QMainWindow):
                         INSERT INTO documento 
                         (fecha, establecimiento, tipodocumento, nrodocumento, 
                          materia, firma, estado, lugar_actual, archivo_pdf)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """
                     
                     valores = [
@@ -1308,7 +1308,6 @@ class MainWindow(QMainWindow):
         self.tree_widget.clear()
         
         # Ordenar las claves de los grupos en orden descendente
-        # Si la categoría es "Id", convertir a enteros para ordenar numéricamente
         if categoria == "Id":
             sorted_keys = sorted(grupos.keys(), key=lambda x: int(x), reverse=True)
         else:
@@ -2087,7 +2086,7 @@ class MainWindow(QMainWindow):
                 (estado, motivo, solicitud['id_documento'])
             )
 
-            if aceptar: 
+            if aceptar:
                 # Actualizar documento: lugar_actual = nuevo departamento y destino = vacío
                 update_documento = """
                     UPDATE documento 
@@ -3460,6 +3459,7 @@ class RegisterDialog(QDialog):
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_admin = parent.email  # Agregamos esta línea
         self.setWindowTitle("Panel de Administración")
         self.setMinimumWidth(1200)
         self.setMinimumHeight(700)
@@ -3886,7 +3886,7 @@ class AdminPanel(QDialog):
         dialog.setMinimumWidth(400)
         layout = QFormLayout(dialog)
 
-        # Campos de edición
+        # Campos existentes
         email_input = QLineEdit(user['email'])
         email_input.setStyleSheet(f"""
             QLineEdit {{
@@ -3898,35 +3898,38 @@ class AdminPanel(QDialog):
             }}
         """)
 
-        # Combo box para departamento
+        # Campos para cambiar contraseña
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        password_input.setPlaceholderText("Nueva contraseña (dejar vacío para no cambiar)")
+        password_input.setStyleSheet(email_input.styleSheet())
+
+        confirm_password = QLineEdit()
+        confirm_password.setEchoMode(QLineEdit.EchoMode.Password)
+        confirm_password.setPlaceholderText("Confirmar nueva contraseña")
+        confirm_password.setStyleSheet(email_input.styleSheet())
+
+        # Resto de campos existentes
         dept_combo = QComboBox()
         dept_combo.setStyleSheet(self._get_combo_style())
         
         try:
-            # Obtener todos los departamentos de la tabla departamento
             departamentos = DatabaseManager.execute_query("""
                 SELECT nombre_departamento 
                 FROM departamento 
                 ORDER BY nombre_departamento
             """)
             
-            # Agregar departamentos al combo box
             for dept in departamentos:
                 dept_combo.addItem(dept['nombre_departamento'])
             
-            # Establecer el departamento actual si existe
             current_dept_index = dept_combo.findText(user['departamento'])
             if current_dept_index >= 0:
                 dept_combo.setCurrentIndex(current_dept_index)
                 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Error al cargar departamentos: {str(e)}"
-            )
+            QMessageBox.critical(self, "Error", f"Error al cargar departamentos: {str(e)}")
 
-        # Combo box para rol
         role_combo = QComboBox()
         role_combo.addItems(["usuario", "recepcionista", "admin"])
         role_combo.setCurrentText(user['rol'])
@@ -3936,8 +3939,9 @@ class AdminPanel(QDialog):
         layout.addRow("Email:", email_input)
         layout.addRow("Departamento:", dept_combo)
         layout.addRow("Rol:", role_combo)
+        layout.addRow("Nueva Contraseña:", password_input)
+        layout.addRow("Confirmar Contraseña:", confirm_password)
 
-        # Botones
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | 
             QDialogButtonBox.StandardButton.Cancel
@@ -3963,21 +3967,53 @@ class AdminPanel(QDialog):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             try:
-                # Actualizar usuario en la base de datos
-                DatabaseManager.execute_query("""
-                    UPDATE usuario 
-                    SET email = %s, departamento = %s, rol = %s 
-                    WHERE nombreusuario = %s
-                """, (
-                    email_input.text(),
-                    dept_combo.currentText(),
-                    role_combo.currentText(),
-                    user['nombreusuario']
-                ))
+                # Verificar si se quiere cambiar la contraseña
+                if password_input.text():
+                    if password_input.text() != confirm_password.text():
+                        QMessageBox.critical(
+                            self,
+                            "Error",
+                            "Las contraseñas no coinciden"
+                        )
+                        return
+                    
+                    # Generar nuevo salt y hash para la nueva contraseña
+                    new_salt = DatabaseManager.generate_salt()
+                    new_password_hash = DatabaseManager.hash_password(password_input.text(), new_salt)
+                    
+                    # Actualizar usuario con nueva contraseña
+                    DatabaseManager.execute_query("""
+                        UPDATE usuario 
+                        SET email = %s, 
+                            departamento = %s, 
+                            rol = %s,
+                            password_hash = %s,
+                            salt = %s
+                        WHERE nombreusuario = %s
+                    """, (
+                        email_input.text(),
+                        dept_combo.currentText(),
+                        role_combo.currentText(),
+                        new_password_hash,
+                        new_salt,
+                        user['nombreusuario']
+                    ))
+                else:
+                    # Actualizar usuario sin cambiar contraseña
+                    DatabaseManager.execute_query("""
+                        UPDATE usuario 
+                        SET email = %s, 
+                            departamento = %s, 
+                            rol = %s 
+                        WHERE nombreusuario = %s
+                    """, (
+                        email_input.text(),
+                        dept_combo.currentText(),
+                        role_combo.currentText(),
+                        user['nombreusuario']
+                    ))
                 
-                # Recargar la tabla
                 self.load_users()
-                
                 QMessageBox.information(
                     self,
                     "Éxito",
@@ -4277,9 +4313,11 @@ class PendingRequestsDialog(QDialog):
                 self.requests_table.setItem(i, 0, QTableWidgetItem(req['nombreusuario']))
                 self.requests_table.setItem(i, 1, QTableWidgetItem(req['email']))
                 self.requests_table.setItem(i, 2, QTableWidgetItem(req['departamento']))
-                self.requests_table.setItem(i, 3, QTableWidgetItem(
-                    req['fecha_solicitud'].strftime("%Y-%m-%d %H:%M")
-                ))
+                
+                # Agregar verificación para fecha_solicitud
+                fecha = req['fecha_solicitud']
+                fecha_str = fecha.strftime("%Y-%m-%d %H:%M") if fecha else "Sin fecha"
+                self.requests_table.setItem(i, 3, QTableWidgetItem(fecha_str))
                 
                 # Estado con color
                 estado_item = QTableWidgetItem("PENDIENTE")
@@ -4389,10 +4427,11 @@ class PendingRequestsDialog(QDialog):
                 DatabaseManager.execute_query("""
                     UPDATE usuario 
                     SET estado = 'rechazado',
-                        fecha_aprobacion = CURRENT_TIMESTAMP,
-                        aprobado_por = %s
+                        fecha_rechazo = CURRENT_TIMESTAMP,
+                        rechazado_por = %s,
+                        motivo_rechazo = %s
                     WHERE nombreusuario = %s
-                """, (self.parent().current_admin, username))
+                """, (self.parent().current_admin, reason, username))
                 
                 # Enviar notificación por email
                 if EmailNotifier.send_rejection_notification(user_info['email'], username, reason):
@@ -4648,10 +4687,11 @@ class EmailManager:
             return False
 
 class EmailNotifier:
+    # Configuración para Gmail
     SMTP_SERVER = "smtp.gmail.com"
     SMTP_PORT = 587
-    SENDER_EMAIL = "notificacion@corporacionislademaipo.cl"  # Reemplaza con tu correo
-    SENDER_PASSWORD = "Info13603$"  # Reemplaza con tu contraseña de aplicación
+    SENDER_EMAIL = "titoanthem1@gmail.com"
+    APP_PASSWORD = "yfqo gwip fqke fbmc"
 
     @classmethod
     def send_registration_notification(cls, email):
@@ -4769,9 +4809,10 @@ class EmailNotifier:
             # Conectar y enviar
             with smtplib.SMTP(cls.SMTP_SERVER, cls.SMTP_PORT) as server:
                 server.starttls()
-                server.login(cls.SENDER_EMAIL, cls.SENDER_PASSWORD)
+                server.login(cls.SENDER_EMAIL, cls.APP_PASSWORD)
                 server.send_message(message)
                 
+            print(f"Correo enviado exitosamente a {to_email}")
             return True
             
         except Exception as e:
