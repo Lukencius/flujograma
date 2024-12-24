@@ -1,4 +1,12 @@
-PyQt6>=6.4.0
-pymysql>=1.0.2
-cryptography>=3.4.7  # Requerido por pymysql para conexiones seguras
-openpyxl>=3.1.2
+PyQt6
+pymysql
+email.mime.text
+email.mime.multipart
+email.mime.image
+
+
+
+openpyxl
+
+pyinstaller
+auto-py-to-exe

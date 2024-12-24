@@ -23,6 +23,8 @@ import smtplib
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side
 from datetime import datetime
+import ssl
+from email.mime.image import MIMEImage
 
 # Constantes para la conexión a la base de datos
 DB_CONFIG = {
@@ -1266,7 +1268,7 @@ class MainWindow(QMainWindow):
             item = self.tree_widget.takeTopLevelItem(0)
             id_doc = int(item.text(0))
             
-            # Obtener información completa del documento
+            # Obtener informaci��n completa del documento
             query = """
                 SELECT 
                     archivo_pdf IS NOT NULL AND archivo_pdf != '' as tiene_pdf,
@@ -1838,10 +1840,11 @@ class MainWindow(QMainWindow):
 
     def confirmar_envio(self, documento, departamento_combo, dialog):
         try:
-            # Obtener el departamento seleccionado del combo box
+            # Obtener el departamento seleccionado y el email del usuario actual
             departamento_destino = departamento_combo.currentText()
+            email_remitente = self.email  # Asumiendo que self.email contiene el email del usuario actual
             
-            # Primero verificamos si existe una solicitud pendiente para este documento
+            # Verificar solicitud pendiente
             check_query = """
                 SELECT id_solicitud 
                 FROM solicitudes_documento 
@@ -1851,48 +1854,49 @@ class MainWindow(QMainWindow):
             solicitud_existente = DatabaseManager.execute_query(check_query, (documento['id_documento'],))
 
             if solicitud_existente:
-                # Si existe una solicitud pendiente, actualizamos el destino
+                # Actualizar solicitud existente
                 update_query = """
                     UPDATE solicitudes_documento 
                     SET departamento_destino = %s,
-                        fecha_solicitud = CONVERT_TZ(NOW(), 'UTC', 'America/Santiago')
+                        fecha_solicitud = CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'),
+                        correo_remitente = %s
                     WHERE id_documento = %s 
                     AND estado = 'pendiente'
                 """
-                values = (departamento_destino, documento['id_documento'])
+                values = (departamento_destino, email_remitente, documento['id_documento'])
                 DatabaseManager.execute_query(update_query, values)
                 
-                # Actualizar el destino en la tabla documento
+                # Actualizar documento
                 update_doc_query = """
                     UPDATE documento 
                     SET destino = %s 
                     WHERE id_documento = %s
                 """
-                DatabaseManager.execute_query(update_doc_query, values)
+                DatabaseManager.execute_query(update_doc_query, (departamento_destino, documento['id_documento']))
                 
                 mensaje = "Solicitud de envío actualizada correctamente"
             else:
-                # Si no existe, creamos una nueva solicitud
+                # Crear nueva solicitud
                 insert_query = """
                     INSERT INTO solicitudes_documento 
-                    (id_documento, departamento_origen, departamento_destino, fecha_solicitud) 
-                    VALUES (%s, %s, %s, CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'))
+                    (id_documento, departamento_origen, departamento_destino, fecha_solicitud, correo_remitente) 
+                    VALUES (%s, %s, %s, CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'), %s)
                 """
                 values = (
                     documento['id_documento'],
                     documento['lugar_actual'],
-                    departamento_destino
+                    departamento_destino,
+                    email_remitente
                 )
                 DatabaseManager.execute_query(insert_query, values)
                 
-                # Actualizar el destino en la tabla documento
+                # Actualizar documento
                 update_doc_query = """
                     UPDATE documento 
                     SET destino = %s 
                     WHERE id_documento = %s
                 """
-                doc_values = (departamento_destino, documento['id_documento'])
-                DatabaseManager.execute_query(update_doc_query, doc_values)
+                DatabaseManager.execute_query(update_doc_query, (departamento_destino, documento['id_documento']))
                 
                 mensaje = "Solicitud de envío creada correctamente"
             
@@ -1901,7 +1905,7 @@ class MainWindow(QMainWindow):
                 mensaje,
                 QMessageBox.Icon.Information
             )
-            
+
             dialog.accept()
             self.consultar_datos()  # Actualizar vista
             
@@ -2084,17 +2088,38 @@ class MainWindow(QMainWindow):
                 UPDATE solicitudes_documento 
                 SET estado = %s,
                     fecha_respuesta = CONVERT_TZ(NOW(), 'UTC', 'America/Santiago'),
-                    motivo_rechazo = %s
+                    motivo_rechazo = %s,
+                    correo_receptor = %s
                 WHERE id_documento = %s 
                 AND estado = 'pendiente'
             """
             DatabaseManager.execute_query(
                 update_solicitud, 
-                (estado, motivo, solicitud['id_documento'])
+                (estado, motivo, self.email, solicitud['id_documento'])
             )
 
+            # Obtener información del documento y correos
+            query_info = """
+                SELECT s.correo_remitente, s.correo_receptor, 
+                       d.id_documento, d.tipodocumento, d.nrodocumento, d.materia
+                FROM solicitudes_documento s
+                JOIN documento d ON s.id_documento = d.id_documento
+                WHERE s.id_solicitud = %s
+            """
+            resultado = DatabaseManager.execute_query(query_info, (solicitud['id_solicitud'],))
+
+            # Verificar si hay resultados
+            if not resultado:
+                raise Exception("No se encontró la información de la solicitud")
+            
+            info = resultado[0]
+            
+            # Preparar datos para el correo
+            destinatario = info['correo_receptor'], info['correo_remitente']
+            asunto = f"Documento {info['tipodocumento']} {info['nrodocumento']} - {estado.capitalize()}"
+            
             if aceptar:
-                # Actualizar documento: lugar_actual = nuevo departamento y destino = vacío
+                # Actualizar documento
                 update_documento = """
                     UPDATE documento 
                     SET lugar_actual = %s,
@@ -2105,8 +2130,22 @@ class MainWindow(QMainWindow):
                     update_documento, 
                     (self.departamento, solicitud['id_documento'])
                 )
-
-                mensaje = "Documento recibido correctamente"
+                
+                mensaje = f"""
+                    El documento ha sido recibido correctamente.
+                    
+                    Documento enviado por: {info['correo_remitente']}
+                    
+                    Detalles del documento:
+                    - ID: {info['id_documento']}
+                    - Tipo: {info['tipodocumento']}
+                    - Número: {info['nrodocumento']}
+                    - Materia: {info['materia']}
+                    - Recibido por: {info['correo_receptor']}
+                    - Nuevo departamento: {self.departamento}
+                    
+                    Fecha de recepción: {datetime.now().strftime('%d/%m/%y %H:%M')}
+                """
             else:
                 # Si se rechaza, mantener lugar_actual y limpiar destino
                 update_documento = """
@@ -2118,12 +2157,34 @@ class MainWindow(QMainWindow):
                     update_documento, 
                     (solicitud['id_documento'],)
                 )
+                
+                mensaje = f"""
+                    El documento ha sido rechazado.
+                    
+                    Documento enviado por: {info['correo_remitente']}
+                    
+                    Detalles del documento:
+                    - ID: {info['id_documento']}
+                    - Tipo: {info['tipodocumento']}
+                    - Número: {info['nrodocumento']}
+                    - Materia: {info['materia']}
+                    
+                    Rechazado por: {info['correo_receptor']}
+                    Motivo del rechazo: {motivo}
+                    Fecha de rechazo: {datetime.now().strftime('%d/%m/%y %H:%M')}
+                """
 
-                mensaje = "Documento rechazado correctamente"
+            # Enviar correos
+            EmailNotifier.send_document_status_notification(
+                destinatario,
+                asunto=asunto,
+                mensaje=mensaje
+            )
+        
 
             self.mostrar_mensaje(
                 "Éxito",
-                mensaje,
+                "Documento " + ("recibido" if aceptar else "rechazado") + " correctamente",
                 QMessageBox.Icon.Information
             )
             
@@ -2211,7 +2272,7 @@ class MainWindow(QMainWindow):
                     top=Side(style='thin'),
                     bottom=Side(style='thin')
                 )
-
+            
             # Obtener datos de la tabla y agregarlos a la hoja de detalles
             for row in range(self.tree_widget.topLevelItemCount()):
                 item = self.tree_widget.topLevelItem(row)
@@ -2779,13 +2840,13 @@ class RegisterDialog(QDialog):
     def setup_ui(self):
         # Layout principal con márgenes ajustados
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)  # Reducido el espaciado
-        main_layout.setContentsMargins(40, 20, 40, 20)  # Reducido márgenes superior e inferior
+        main_layout.setSpacing(10)  # Reducido el espaciado
+        main_layout.setContentsMargins(20, 20, 20, 20)  # Reducido márgenes superior e inferior
 
         # Logo
         logo_label = QLabel()
         logo_pixmap = QPixmap(resource_path("isla_de_maipo.png"))
-        scaled_pixmap = logo_pixmap.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled_pixmap = logo_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         logo_label.setPixmap(scaled_pixmap)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(logo_label)
@@ -2809,7 +2870,7 @@ class RegisterDialog(QDialog):
         # Formulario
         form_widget = QWidget()
         form_layout = QFormLayout(form_widget)
-        form_layout.setSpacing(20)  # Aumentado el espaciado entre campos
+        form_layout.setSpacing(5)  # Aumentado el espaciado entre campos
         form_layout.setContentsMargins(10, 10, 10, 10)  # Márgenes internos
 
         # Campos de entrada con estilos mejorados
@@ -3054,6 +3115,11 @@ class RegisterDialog(QDialog):
                 border: none;
                 padding-right: 20px;
             }}
+            QComboBox::down-arrow {{
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }}
             QComboBox QAbstractItemView {{
                 background-color: {COLORS['surface']};
                 color: {COLORS['text']};
@@ -3069,26 +3135,66 @@ class RegisterDialog(QDialog):
             username = self.username_input.text()
             email = self.email_input.text()
             password = self.password_input.text()
+            confirm_password = self.confirm_password_input.text()
             rol = "usuario"  # Por defecto será usuario normal
             departamento = self.departamento_combo.currentText()
+            fecha_solicitud = datetime.now()
 
-            # Validaciones
-            if not all([username, email, password, departamento]):
+            # Validaciones básicas
+            if not all([username, email, password, confirm_password, departamento]):
                 raise ValueError("Todos los campos son obligatorios")
+
+            if password != confirm_password:
+                raise ValueError("Las contraseñas no coinciden")
+
+            if not self.validate_email(email):
+                raise ValueError("El formato del email no es válido")
+
+            # Verificar si el email ya existe
+            check_email_query = "SELECT COUNT(*) as count FROM usuario WHERE email = %s"
+            result = DatabaseManager.execute_query(check_email_query, (email,))
+            
+            if result[0]['count'] > 0:
+                raise ValueError("Este email ya está registrado en el sistema")
 
             # Generar salt y hash de la contraseña
             salt = DatabaseManager.generate_salt()
             password_hash = DatabaseManager.hash_password(password, salt)
 
             # Registrar usuario con estado pendiente
-            DatabaseManager.execute_query("""
+            query = """
                 INSERT INTO usuario 
-                (nombreusuario, email, password_hash, salt, rol, departamento, estado) 
-                VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
-            """, (username, email, password_hash, salt, rol, departamento))
+                (nombreusuario, email, password_hash, salt, rol, departamento, estado, fecha_solicitud) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            values = (
+                username, 
+                email, 
+                password_hash, 
+                salt, 
+                rol, 
+                departamento, 
+                'pendiente',
+                fecha_solicitud
+            )
             
-            # Enviar email de notificación
-            if EmailNotifier.send_registration_notification(email):
+            DatabaseManager.execute_query(query, values)
+            
+            # Crear diccionario con datos del nuevo usuario
+            new_user_data = {
+                'nombreusuario': username,
+                'email': email,
+                'departamento': departamento,
+                'fecha_solicitud': fecha_solicitud.strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            # Enviar email de notificación al usuario
+            user_notified = EmailNotifier.send_registration_notification(email)
+            
+            # Enviar notificación a todos los administradores
+            admins_notified = EmailNotifier.notify_admins_new_registration(new_user_data)
+            
+            if user_notified and admins_notified:
                 self.show_custom_success(
                     "Registro Pendiente",
                     "¡Solicitud enviada correctamente!",
@@ -3098,7 +3204,7 @@ class RegisterDialog(QDialog):
                 self.show_custom_warning(
                     "Registro Pendiente",
                     "¡Solicitud enviada correctamente!",
-                    "Hubo un problema al enviar el correo de confirmación, pero su solicitud fue registrada."
+                    "Hubo un problema al enviar algunas notificaciones, pero su solicitud fue registrada."
                 )
             
             self.accept()
@@ -3758,7 +3864,7 @@ class AdminPanel(QDialog):
         add_button.clicked.connect(self.add_user)
         add_button.setStyleSheet(self._get_button_style('primary'))
         
-        save_button = QPushButton("💾 Guardar Cambios")
+        save_button = QPushButton(" Guardar Cambios")
         save_button.clicked.connect(self.save_changes)
         save_button.setStyleSheet(self._get_button_style('success'))
         
@@ -3787,21 +3893,86 @@ class AdminPanel(QDialog):
         self.user_table.setColumnWidth(5, 100)
 
     def load_users(self):
-        """Carga los usuarios desde la base de datos"""
         try:
+            # Modificada la consulta para filtrar solo usuarios aprobados
             users = DatabaseManager.execute_query("""
-                SELECT nombreusuario, email, departamento, rol 
+                SELECT nombreusuario, email, departamento, rol, estado 
                 FROM usuario 
-                ORDER BY departamento, nombreusuario
+                WHERE estado = 'aprobado'
+                ORDER BY nombreusuario
             """)
             
             self.user_table.setRowCount(len(users))
             
             for i, user in enumerate(users):
-                self._populate_user_row(i, user)
+                self.user_table.setItem(i, 0, QTableWidgetItem(user['nombreusuario']))
+                self.user_table.setItem(i, 1, QTableWidgetItem(user['email']))
+                self.user_table.setItem(i, 2, QTableWidgetItem(user['departamento']))
+                self.user_table.setItem(i, 3, QTableWidgetItem(user['rol']))
                 
-            # Actualizar la lista de departamentos en el filtro
-            self._update_department_filter()
+                # Crear widget para los botones de acción
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(5, 0, 5, 0)
+                action_layout.setSpacing(8)
+                
+                # Botón Editar
+                edit_btn = QPushButton("Editar")
+                edit_btn.setToolTip("Editar Usuario")
+                edit_btn.clicked.connect(lambda _, u=user: self.edit_user(u))
+                
+                # Botón Eliminar
+                delete_btn = QPushButton("Eliminar")
+                delete_btn.setToolTip("Eliminar Usuario")
+                delete_btn.clicked.connect(lambda _, u=user: self.delete_user(u))
+                
+                # Estilo para el botón editar
+                edit_style = f"""
+                    QPushButton {{
+                        background-color: {COLORS['primary']};
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        padding: 3px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        min-width: 50px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {COLORS['primary_dark']};
+                    }}
+                """
+                
+                # Estilo para el botón eliminar
+                delete_style = f"""
+                    QPushButton {{
+                        background-color: {COLORS['error']};
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        padding: 3px 8px;
+                        font-size: 11px;
+                        font-weight: bold;
+                        min-width: 50px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: #d32f2f;
+                    }}
+                """
+                
+                edit_btn.setStyleSheet(edit_style)
+                delete_btn.setStyleSheet(delete_style)
+                
+                # Agregar botones al layout
+                action_layout.addWidget(edit_btn)
+                action_layout.addWidget(delete_btn)
+                
+                # Establecer el widget en la tabla
+                self.user_table.setCellWidget(i, 4, action_widget)
+                
+                # Ajustar el tamaño de las columnas
+                self.user_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+                self.user_table.setColumnWidth(4, 140)
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error al cargar usuarios: {str(e)}")
@@ -4309,6 +4480,112 @@ class AdminPanel(QDialog):
         except Exception as e:
             print(f"Error al actualizar contador de solicitudes: {str(e)}")
 
+    def setup_admin_panel(self):
+        try:
+            # Layout principal
+            main_layout = QVBoxLayout(self)
+            
+            # Botón "Nuevo Usuario" con estilo actualizado
+            new_user_btn = QPushButton("Nuevo Usuario")
+            new_user_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['success']};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 15px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #388E3C;
+                }}
+            """)
+            new_user_btn.clicked.connect(self.show_register_dialog)
+            
+            # Agregar el botón al layout con alineación a la derecha
+            button_layout = QHBoxLayout()
+            button_layout.addStretch()
+            button_layout.addWidget(new_user_btn)
+            main_layout.addLayout(button_layout)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al configurar el panel: {str(e)}")
+
+    def show_register_dialog(self):
+        try:
+            dialog = RegisterDialog(parent=self)
+            dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.load_users()  # Recargar la lista de usuarios
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al mostrar el diálogo de registro: {str(e)}")
+
+    def setup_filters(self):
+        try:
+            # Obtener solo los departamentos que tienen usuarios aprobados
+            departments_query = """
+                SELECT DISTINCT d.nombre_departamento 
+                FROM departamento d
+                INNER JOIN usuario u ON d.nombre_departamento = u.departamento
+                WHERE u.estado = 'aprobado'
+                ORDER BY d.nombre_departamento
+            """
+            departments = DatabaseManager.execute_query(departments_query)
+            
+            # Configurar el ComboBox de filtro
+            self.filter_combo = QComboBox()
+            self.filter_combo.addItem("Todos los Departamentos")
+            
+            # Agregar solo los departamentos que tienen usuarios aprobados
+            for dept in departments:
+                if dept['nombre_departamento']:
+                    self.filter_combo.addItem(dept['nombre_departamento'])
+            
+            # Estilo para el ComboBox
+            self.filter_combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    border: 1px solid {COLORS['primary']};
+                    border-radius: 3px;
+                    padding: 5px;
+                    min-width: 150px;
+                }}
+                QComboBox:hover {{
+                    border-color: {COLORS['primary_light']};
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                }}
+                QComboBox::down-arrow {{
+                    image: url(:/icons/down_arrow.png);
+                    width: 12px;
+                    height: 12px;
+                }}
+                QComboBox QAbstractItemView {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    selection-background-color: {COLORS['primary']};
+                    selection-color: {COLORS['text']};
+                    border: 1px solid {COLORS['primary']};
+                }}
+            """)
+            
+            # Conectar el evento de cambio
+            self.filter_combo.currentTextChanged.connect(self.filter_users)
+            
+            # Agregar el ComboBox al layout
+            filter_layout = QHBoxLayout()
+            filter_layout.addWidget(QLabel("Filtrar por Departamento:"))
+            filter_layout.addWidget(self.filter_combo)
+            filter_layout.addStretch()
+            
+            return filter_layout
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al configurar filtros: {str(e)}")
+            return QHBoxLayout()
+
 class PendingRequestsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4700,166 +4977,302 @@ class SignalManager(QObject):
         if cls._instance:
             cls._instance.progress_updated.emit(value)
 
-class EmailManager:
-    def __init__(self):
-        # Configuración del servidor de correo (ejemplo con Gmail)
-        self.smtp_server = "smtp.gmail.com"
-        self.smtp_port = 587
-        self.sender_email = "tu_correo@gmail.com"  # Correo desde donde se enviarán las notificaciones
-        self.sender_password = "tu_contraseña_de_aplicacion"  # Contraseña de aplicación de Gmail
-    
-    def send_email(self, to_email, subject, html_content):
-        try:
-            # Crear mensaje
-            message = MIMEMultipart('alternative')
-            message['Subject'] = subject
-            message['From'] = self.sender_email
-            message['To'] = to_email
-
-            # Convertir el contenido HTML
-            html_part = MIMEText(html_content, 'html')
-            message.attach(html_part)
-
-            # Conectar y enviar
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.sender_email, self.sender_password)
-                server.send_message(message)
-                
-            return True
-        except Exception as e:
-            print(f"Error enviando email: {str(e)}")
-            return False
-
 class EmailNotifier:
-    # Configuración para Gmail
     SMTP_SERVER = "smtp.gmail.com"
     SMTP_PORT = 587
     SENDER_EMAIL = "titoanthem1@gmail.com"
     APP_PASSWORD = "yfqo gwip fqke fbmc"
 
     @classmethod
-    def send_registration_notification(cls, email):
-        try:
-            subject = "Solicitud de Registro - Corporación Isla de Maipo"
-            
-            # Crear el contenido HTML del correo
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #2196F3;">Solicitud de Registro Recibida</h2>
-                
-                <p>Estimado usuario,</p>
-                
-                <p>Hemos recibido su solicitud de registro en el Sistema de Gestión de la Corporación Isla de Maipo.</p>
-                
-                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <p style="margin: 0;"><strong>Email registrado:</strong> {email}</p>
-                    <p style="margin: 10px 0 0;"><strong>Estado:</strong> Pendiente de aprobación</p>
+    def _get_base_template(cls, content):
+        """Plantilla base mejorada para todos los correos"""
+        return f"""
+        <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: 'Helvetica', Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #2c3e50;
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f5f6fa;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 20px auto;
+                        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+                        border-radius: 8px;
+                        overflow: hidden;
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #1e3d59 0%, #0a4f8f 100%);
+                        padding: 20px;
+                        display: flex;
+                        align-items: center;
+                        border-bottom: 3px solid #FF6B35;
+                    }}
+                    .logo {{
+                        width: 90px;
+                        height: auto;
+                        border-radius: 5px;
+                    }}
+                    .company-name {{
+                        color: white;
+                        margin-left: 20px;
+                        font-size: 18px;
+                        line-height: 1.4;
+                        text-shadow: 1px 1px 2px rgba(0,0,0.2);
+                    }}
+                    .content {{
+                        background-color: #ffffff;
+                        padding: 30px;
+                        border-bottom: 1px solid #e1e8ed;
+                    }}
+                    .info-box {{
+                        background-color: #f8faff;
+                        border-left: 4px solid #1e3d59;
+                        border-radius: 4px;
+                        padding: 20px;
+                        margin: 20px 0;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                    }}
+                    .footer {{
+                        text-align: center;
+                        padding: 20px;
+                        font-size: 13px;
+                        color: #7f8c8d;
+                        background-color: #f8faff;
+                        border-top: 1px solid #e1e8ed;
+                    }}
+                    h2 {{
+                        color: #1e3d59;
+                        margin-bottom: 20px;
+                        font-size: 24px;
+                        border-bottom: 2px solid #FF6B35;
+                        padding-bottom: 10px;
+                        display: inline-block;
+                    }}
+                    p {{
+                        margin: 10px 0;
+                        color: #34495e;
+                    }}
+                    .highlight {{
+                        color: #1e3d59;
+                        font-weight: bold;
+                    }}
+                    .contact-info {{
+                        display: flex;
+                        justify-content: center;
+                        gap: 20px;
+                        margin-top: 10px;
+                        color: #95a5a6;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <img src="cid:logo" class="logo" alt="Logo Corporación">
+                        <div class="company-name">
+                            <strong>Corporación Municipal</strong><br>
+                            Educación y Salud<br>
+                            Isla de Maipo
+                        </div>
+                    </div>
+                    <div class="content">
+                        {content}
+                    </div>
+                    <div class="footer">
+                        <strong>Corporación Municipal de Educación y Salud Isla de Maipo</strong>
+                        <p>
+                            Este es un mensaje automático del Sistema de Gestión Documental.<br>
+                            Por favor no responda a este correo.
+                        </p>
+                    </div>
                 </div>
-                
-                <p>Un administrador revisará su solicitud y recibirá una notificación cuando sea procesada.</p>
-                
-                <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                    Este es un correo automático, por favor no responda a este mensaje.<br>
-                    Corporación Isla de Maipo © 2024
-                </p>
+            </body>
+        </html>
+        """
+
+    @classmethod
+    def format_date(cls, date):
+        """Formatea fechas de manera más legible"""
+        months = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+        
+        if isinstance(date, datetime):
+            day = date.day
+            month = months[date.month]
+            year = date.year
+            time = date.strftime("%H:%M")
+            return f"{day} de {month} del {year} a las {time} hrs."
+        return str(date)
+
+    @classmethod
+    def send_registration_notification(cls, email):
+        content = f"""
+            <h2>Solicitud de Registro Recibida</h2>
+            <p>Estimado(a) usuario(a):</p>
+            <p>Le damos la bienvenida al Sistema de Gestión Documental de la Corporación Municipal de Educación y Salud de Isla de Maipo. 
+               Hemos recibido exitosamente su solicitud de registro en nuestra plataforma.</p>
+            
+            <div class="info-box">
+                <p><strong>Detalles de su Solicitud:</strong></p>
+                <p>• Correo electrónico: <span class="highlight">{email}</span></p>
+                <p>• Fecha de solicitud: <span class="highlight">{cls.format_date(datetime.now())}</span></p>
+                <p>• Estado actual: <span class="highlight">Pendiente de aprobación administrativa</span></p>
             </div>
-            """
             
-            # Enviar el correo
-            return cls._send_email(email, subject, html_content)
+            <p><strong>Próximos pasos:</strong></p>
+            <ol>
+                <li>Su solicitud será revisada por nuestro equipo administrativo</li>
+                <li>Recibirá una notificación con el resultado de su solicitud</li>
+                <li>En caso de aprobación, podrá acceder inmediatamente al sistema</li>
+            </ol>
             
-        except Exception as e:
-            print(f"Error al enviar notificación de registro: {str(e)}")
-            return False
+            <p>Agradecemos su interés en formar parte de nuestro sistema de gestión documental.</p>
+        """
+        return cls._send_email(email, "Solicitud de Registro - Corporación Municipal De Isla De Maipo", content)
 
     @classmethod
     def send_approval_notification(cls, email, username):
-        try:
-            subject = "Solicitud Aprobada - Corporación Isla de Maipo"
+        content = f"""
+            <h2>Solicitud Aprobada</h2>
+            <p>Estimado(a) {username}:</p>
             
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #4CAF50;">¡Su solicitud ha sido aprobada!</h2>
-                
-                <p>Estimado {username},</p>
-                
-                <p>Nos complace informarle que su solicitud de registro ha sido aprobada.</p>
-                
-                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <p style="margin: 0;"><strong>Usuario:</strong> {username}</p>
-                    <p style="margin: 10px 0 0;"><strong>Email:</strong> {email}</p>
-                </div>
-                
-                <p>Ya puede acceder al sistema utilizando sus credenciales.</p>
-                
-                <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                    Este es un correo automático, por favor no responda a este mensaje.<br>
-                    Corporación Isla de Maipo © 2024
-                </p>
+            <div class="info-box">
+                <p><strong>Su cuenta ha sido activada:</strong></p>
+                <p>• Usuario: {username}</p>
+                <p>• Email: {email}</p>
             </div>
-            """
             
-            return cls._send_email(email, subject, html_content)
-            
-        except Exception as e:
-            print(f"Error al enviar notificación de aprobación: {str(e)}")
-            return False
+            <p>Ya puede acceder al sistema con sus credenciales.</p>
+        """
+        return cls._send_email(email, "Acceso Aprobado - Corporación Municipal De Isla De Maipo", content)
 
     @classmethod
     def send_rejection_notification(cls, email, username, reason):
-        try:
-            subject = "Actualización de Solicitud - Corporación Isla de Maipo"
+        content = f"""
+            <h2>Actualización de su Solicitud</h2>
+            <p>Estimado(a) {username}:</p>
             
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #F44336;">Actualización de su Solicitud</h2>
-                
-                <p>Estimado {username},</p>
-                
-                <p>Lamentamos informarle que su solicitud de registro no ha sido aprobada.</p>
-                
-                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <p style="margin: 0;"><strong>Motivo:</strong> {reason}</p>
-                </div>
-                
-                <p>Si considera que esto es un error o necesita más información, por favor contacte al administrador.</p>
-                
-                <p style="color: #666; font-size: 12px; margin-top: 30px;">
-                    Este es un correo automático, por favor no responda a este mensaje.<br>
-                    Corporación Isla de Maipo © 2024
-                </p>
+            <div class="info-box">
+                <p><strong>Estado de su solicitud:</strong></p>
+                <p>• Usuario: {username}</p>
+                <p>• Email: {email}</p>
+                <p>• Motivo: {reason}</p>
             </div>
-            """
             
-            return cls._send_email(email, subject, html_content)
-            
-        except Exception as e:
-            print(f"Error al enviar notificación de rechazo: {str(e)}")
-            return False
+            <p>Si considera que esto es un error, por favor contacte al administrador.</p>
+        """
+        return cls._send_email(email, "Acceso Denegado - Corporación Municipal De Isla De Maipo", content)
 
     @classmethod
-    def _send_email(cls, to_email, subject, html_content):
-        try:
-            # Crear mensaje
-            message = MIMEMultipart('alternative')
-            message['Subject'] = subject
-            message['From'] = cls.SENDER_EMAIL
-            message['To'] = to_email
-
-            # Agregar contenido HTML
-            html_part = MIMEText(html_content, 'html')
-            message.attach(html_part)
-
-            # Conectar y enviar
-            with smtplib.SMTP(cls.SMTP_SERVER, cls.SMTP_PORT) as server:
-                server.starttls()
-                server.login(cls.SENDER_EMAIL, cls.APP_PASSWORD)
-                server.send_message(message)
-                
-            print(f"Correo enviado exitosamente a {to_email}")
-            return True
+    def send_document_status_notification(cls, destinatario, asunto, mensaje):
+        content = f"""
+            <h2>{asunto}</h2>
             
+            <div class="info-box">
+                <p><strong>Notificación de Documento:</strong></p>
+                {mensaje.replace('\n', '<br>')}
+            </div>
+            
+            <p>Este es un mensaje automático del Sistema de Gestión Documental.</p>
+        """
+        return cls._send_email(destinatario, asunto, content)
+
+    @classmethod
+    def notify_admins_new_registration(cls, new_user_data):
+        content = f"""
+            <h2>Nueva Solicitud de Registro</h2>
+            <p>Se ha recibido una nueva solicitud que requiere revisión.</p>
+            
+            <div class="info-box">
+                <p><strong>Detalles del solicitante:</strong></p>
+                <p>• Usuario: {new_user_data['nombreusuario']}</p>
+                <p>• Email: {new_user_data['email']}</p>
+                <p>• Departamento: {new_user_data['departamento']}</p>
+                <p>• Fecha: {cls.format_date(datetime.now())}</p>
+            </div>
+            
+            <p>Por favor revise esta solicitud en el Panel de Administración.</p>
+        """
+        
+        try:
+            # Obtener todos los emails de administradores en una lista
+            admin_emails = DatabaseManager.execute_query("""
+                SELECT email FROM usuario 
+                WHERE rol = 'admin' AND estado = 'aprobado'
+            """)
+            
+            # Extraer solo los emails de los resultados y convertir a lista
+            admin_email_list = [admin['email'] for admin in admin_emails]
+            
+            if not admin_email_list:
+                print("No hay administradores aprobados en el sistema")
+                return False
+                
+            # Enviar un solo email a todos los administradores
+            success = cls._send_email(
+                admin_email_list,
+                "Nueva Solicitud de Registro Pendiente",
+                content
+            )
+            
+            return success
+            
+        except Exception as e:
+            print(f"Error al notificar a los administradores: {str(e)}")
+            return False
+
+    @staticmethod
+    def _send_email(to_email, subject, content, include_logo=True):
+        try:
+            message = MIMEMultipart('related')
+            message['Subject'] = subject
+            message['From'] = EmailNotifier.SENDER_EMAIL
+            
+            # Asegurarse de que to_email sea una lista de strings
+            if isinstance(to_email, (list, tuple)):
+                recipients = [str(email) for email in to_email]  # Convertir a strings
+                message['To'] = ', '.join(recipients)
+            else:
+                recipients = [str(to_email)]  # Convertir a string y lista
+                message['To'] = str(to_email)
+
+            html_content = EmailNotifier._get_base_template(content)
+            
+            msgAlternative = MIMEMultipart('alternative')
+            message.attach(msgAlternative)
+            msgHtml = MIMEText(html_content, 'html')
+            msgAlternative.attach(msgHtml)
+            logo_corp = resource_path("isla_de_maipo.png")
+
+            if include_logo:
+                try:
+                    with open(logo_corp, 'rb') as f:
+                        msgImage = MIMEImage(f.read())
+                        msgImage.add_header('Content-ID', '<logo>')
+                        msgImage.add_header('Content-Disposition', 'inline', filename='Logo Isla de Maipo.png')
+                        message.attach(msgImage)
+                except Exception as e:
+                    print(f"Error al adjuntar el logo: {str(e)}")
+
+            with smtplib.SMTP(EmailNotifier.SMTP_SERVER, EmailNotifier.SMTP_PORT) as server:
+                server.starttls()
+                server.login(EmailNotifier.SENDER_EMAIL, EmailNotifier.APP_PASSWORD)
+                # Asegurarse de que todos los destinatarios sean strings
+                server.sendmail(
+                    EmailNotifier.SENDER_EMAIL, 
+                    recipients,
+                    message.as_string()
+                )
+            
+            return True
         except Exception as e:
             print(f"Error enviando email: {str(e)}")
             return False
