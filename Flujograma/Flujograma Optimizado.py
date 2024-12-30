@@ -1054,13 +1054,13 @@ class MainWindow(QMainWindow):
             # Aplicar los anchos de columna
             for col, width in column_widths.items():
                 self.tree_widget.setColumnWidth(col, width)
-            
+                
             # Mostrar mensaje de éxito
             QMessageBox.information(
                 self,
                 "Consulta exitosa",
                 f"Se cargaron {len(resultados)} registros"
-            )
+                )
             
         except Exception as e:
             QMessageBox.critical(
@@ -2100,7 +2100,7 @@ class MainWindow(QMainWindow):
 
             # Obtener información del documento y correos
             query_info = """
-                SELECT s.correo_remitente, s.correo_receptor, 
+                SELECT s.correo_remitente, s.correo_receptor,
                        d.id_documento, d.tipodocumento, d.nrodocumento, d.materia
                 FROM solicitudes_documento s
                 JOIN documento d ON s.id_documento = d.id_documento
@@ -2133,6 +2133,7 @@ class MainWindow(QMainWindow):
                 
                 mensaje = f"""
                     El documento ha sido recibido correctamente.
+                    Id Solicitud: {solicitud['id_solicitud']}
                     
                     Documento enviado por: {info['correo_remitente']}
                     
@@ -2160,6 +2161,7 @@ class MainWindow(QMainWindow):
                 
                 mensaje = f"""
                     El documento ha sido rechazado.
+                    Id Solicitud: {solicitud['id_solicitud']}
                     
                     Documento enviado por: {info['correo_remitente']}
                     
