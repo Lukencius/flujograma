@@ -2,7 +2,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QToolButton, QLabel, QLineEdit, QTreeWidget, QTreeWidgetItem, QMessageBox,
                              QPushButton, QInputDialog, QDialog, QDialogButtonBox, QProgressBar, QFormLayout,
                              QTableWidget, QTableWidgetItem, QComboBox, QFrame, QCalendarWidget, QProgressDialog,
-                             QHeaderView, QCheckBox, QFileDialog, QAbstractItemView, QMenu, QScrollArea)
+                             QHeaderView, QCheckBox, QFileDialog, QAbstractItemView, QMenu, QScrollArea,
+                             QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                           QPushButton, QTableWidget, QTableWidgetItem, 
+                           QHeaderView, QWidget, QMessageBox, QInputDialog)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QObject, QDate, QByteArray
 from PyQt6.QtGui import QIcon, QColor, QPixmap, QFont, QPainter, QPalette, QAction
 from PyQt6.QtSvg import QSvgRenderer
@@ -270,6 +273,16 @@ class DatabaseManager:
             return [resultado['nombre_departamento'] for resultado in resultados]
         except Exception as e:
             print(f"Error al obtener departamentos: {str(e)}")
+            return []
+
+    @staticmethod
+    def get_tipos_documento():
+        try:
+            query = "SELECT tipodocumento FROM tipodocumento ORDER BY tipodocumento"
+            resultados = DatabaseManager.execute_query(query)
+            return [resultado['tipodocumento'] for resultado in resultados]
+        except Exception as e:
+            print(f"Error al obtener tipos de documento: {str(e)}")
             return []
 
 class ProgressDialog(QDialog):
@@ -789,10 +802,7 @@ class MainWindow(QMainWindow):
             # Campos de texto y sus valores
             campos = [
                 ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
-                ("tipodocumento", QComboBox(), [
-                    "Oficio", "Resolucion", "Ordinario", "Memo", 
-                    "Decreto", "Factura", "Carta"
-                ]),
+                ("tipodocumento", QComboBox(), DatabaseManager.get_tipos_documento()),  # Modificado
                 ("nrodocumento", QLineEdit(), None),
                 ("materia", QLineEdit(), None)
             ]
@@ -1551,10 +1561,7 @@ class MainWindow(QMainWindow):
             # Campos de texto y sus valores actuales
             campos = [
                 ("establecimiento", QComboBox(), DatabaseManager.get_establecimientos()),
-                ("tipodocumento", QComboBox(), [
-                    "Oficio", "Resolucion", "Ordinario", "Memo", 
-                    "Decreto", "Factura", "Carta"
-                ]),
+                ("tipodocumento", QComboBox(), DatabaseManager.get_tipos_documento()),  # Modificado
                 ("nrodocumento", QLineEdit(), None),
                 ("materia", QLineEdit(), None),
                 ("estado", QLineEdit(), None)
@@ -2662,6 +2669,8 @@ class MainWindow(QMainWindow):
                 f"Error al cerrar documento: {str(e)}",
                 QMessageBox.Icon.Critical
             )
+
+
 
 import json
 import os
@@ -3878,6 +3887,147 @@ class RegisterDialog(QDialog):
             self.confirm_password_input.setEchoMode(QLineEdit.EchoMode.Password)
             self.toggle_confirm_btn.setText("🔒")  # Candado cerrado
 
+class DocumentTypesPanel(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Gestión de Tipos de Documento")
+        self.setMinimumWidth(800)
+        
+        layout = QVBoxLayout(self)
+        
+        # Tabla
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["ID", "Tipo", "Acciones"])
+        
+        # Ajustar anchos de columna
+        self.table.setColumnWidth(0, 50)  # ID más estrecho
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Tipo se estira
+        self.table.setColumnWidth(2, 150)  # Acciones ancho fijo
+        
+        # Ajustar altura de filas
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        
+        layout.addWidget(self.table)
+        
+        # Botón Agregar
+        add_btn = QPushButton("+ Agregar")
+        add_btn.clicked.connect(self.add_document_type)
+        add_btn.setFixedWidth(100)
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['success']};
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 4px;
+                font-size: 12px;
+            }}
+        """)
+        layout.addWidget(add_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        
+        self.load_document_types()
+
+    def load_document_types(self):
+        tipos = DatabaseManager.execute_query("SELECT * FROM tipodocumento")
+        self.table.setRowCount(len(tipos))
+        for i, tipo in enumerate(tipos):
+            # ID y Tipo
+            id_item = QTableWidgetItem(str(tipo['id_tipo']))
+            id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 0, id_item)
+            self.table.setItem(i, 1, QTableWidgetItem(tipo['tipodocumento']))
+            
+            # Botones de acción
+            action_widget = QWidget()
+            action_layout = QHBoxLayout(action_widget)
+            action_layout.setContentsMargins(5, 0, 5, 0)
+            action_layout.setSpacing(10)
+            
+            edit_btn = QPushButton("✏️")
+            edit_btn.setFixedWidth(60)
+            edit_btn.clicked.connect(lambda _, t=tipo: self.edit_document_type(t))
+            edit_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['primary']};
+                    color: white;
+                    border: none;
+                    padding: 5px;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['primary_dark']};
+                }}
+            """)
+            
+            delete_btn = QPushButton("🗑️")
+            delete_btn.setFixedWidth(60)
+            delete_btn.clicked.connect(lambda _, t=tipo: self.delete_document_type(t))
+            delete_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['error']};
+                    color: white;
+                    border: none;
+                    padding: 5px;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: #d32f2f;
+                }}
+            """)
+            
+            action_layout.addWidget(edit_btn)
+            action_layout.addWidget(delete_btn)
+            action_layout.addStretch()
+            self.table.setCellWidget(i, 2, action_widget)
+
+    def add_document_type(self):
+        nombre, ok = QInputDialog.getText(self, "Nuevo Tipo", "Nombre del tipo de documento:")
+        if ok and nombre:
+            try:
+                DatabaseManager.execute_query(
+                    "INSERT INTO tipodocumento (tipodocumento) VALUES (%s)",
+                    (nombre,)
+                )
+                self.load_document_types()
+                QMessageBox.information(self, "Éxito", "Tipo agregado correctamente")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al agregar: {str(e)}")
+
+    def edit_document_type(self, tipo):
+        nombre, ok = QInputDialog.getText(
+            self, "Editar Tipo", 
+            "Nuevo nombre:", 
+            text=tipo['tipodocumento']
+        )
+        if ok and nombre:
+            try:
+                DatabaseManager.execute_query(
+                    "UPDATE tipodocumento SET tipodocumento = %s WHERE id_tipo = %s",
+                    (nombre, tipo['id_tipo'])
+                )
+                self.load_document_types()
+                QMessageBox.information(self, "Éxito", "Tipo actualizado correctamente")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al editar: {str(e)}")
+
+    def delete_document_type(self, tipo):
+        reply = QMessageBox.question(
+            self, "Confirmar", 
+            f"¿Eliminar el tipo '{tipo['tipodocumento']}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                DatabaseManager.execute_query(
+                    "DELETE FROM tipodocumento WHERE id_tipo = %s",
+                    (tipo['id_tipo'],)
+                )
+                self.load_document_types()
+                QMessageBox.information(self, "Éxito", "Tipo eliminado correctamente")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al eliminar: {str(e)}")
+
 class AdminPanel(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4339,11 +4489,15 @@ class AdminPanel(QDialog):
         
         establecimientos_action = QAction("🏫 Panel de Establecimientos", self)
         establecimientos_action.triggered.connect(self.show_establecimientos)
+
+        tipos_documento_action = QAction("📄 Panel Tipos de Documento", self)
+        tipos_documento_action.triggered.connect(self.show_document_types_panel)
         
         # Agregar las acciones al menú
         # dropdown_menu.addAction(nuevo_doc_action)
         dropdown_menu.addAction(departamentos_action)
         dropdown_menu.addAction(establecimientos_action)
+        dropdown_menu.addAction(tipos_documento_action)
         
         # Asignar el menú al botón
         menu_button.setMenu(dropdown_menu)
@@ -4593,7 +4747,7 @@ class AdminPanel(QDialog):
             dialog.setWindowTitle("Nuevo Usuario")
             dialog.setMinimumWidth(500)
             dialog.setStyleSheet(f"""
-                QDialog {{
+                                QDialog {{
                     background-color: {COLORS['background']};
                     border: 2px solid {COLORS['primary']};
                     border-radius: 10px;
@@ -6215,7 +6369,7 @@ class AdminPanel(QDialog):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Confirmar eliminación")
         msg_box.setText(message)
-        msg_box.setIcon(QMessageBox.Icon.Question)
+        msg_box.setIcon(QMessageBox.Icon.Question) 
         msg_box.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
@@ -6271,6 +6425,15 @@ class AdminPanel(QDialog):
                     "Error", 
                     f"No se pudo eliminar el establecimiento: {str(e)}"
                 )
+
+    def show_document_types_panel(self):
+        """Muestra el panel de gestión de tipos de documento"""
+        try:
+            dialog = DocumentTypesPanel(self)
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al abrir panel: {str(e)}")
+
 
 class PendingRequestsDialog(QDialog):
     def __init__(self, parent=None):
